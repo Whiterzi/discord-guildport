@@ -16,5 +16,6 @@ tmp/
 *.tgz
 *.pem
 *.key
+*.hmac-key
 .DS_Store
 .npmrc

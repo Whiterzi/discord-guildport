@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import asynccontextmanager
-import hashlib
+from contextlib import asynccontextmanager, suppress
 import json
 import logging
 import re
@@ -62,10 +61,13 @@ def bearer(request):
 
 
 class RelayService:
-    def __init__(self, store: Store, adapter: Adapter, hub=None, heartbeat=10):
+    def __init__(self, store: Store, adapter: Adapter, hub=None, heartbeat=10, prune_interval=300):
+        if prune_interval <= 0:
+            raise ValueError("prune_interval must be positive.")
         self.store, self.adapter = store, adapter
         self.hub = hub or EventHub()
         self.heartbeat = heartbeat
+        self.prune_interval = prune_interval
         self.limits = RateLimit()
         self.password_slots = asyncio.Semaphore(4)
         self.dummy_hash = hash_password("invalid-account-dummy-password")
@@ -184,7 +186,7 @@ class RelayService:
         except ValueError:
             raise RelayError(400, "invalid_request_id", "request_id must be a canonical UUID.")
         user_id, channel_id = request["user"]["discord_id"], request.match_info["channel_id"]
-        digest = hashlib.sha256(content.encode()).hexdigest()
+        digest = self.store.content_digest(content)
         async with self.send_lock(user_id):
             access = await self.access(user_id, channel_id, for_send=True)
             self.store.authenticate(bearer(request))
@@ -266,8 +268,9 @@ class RelayService:
                 response = web.json_response({"error": {"code": error.code, "message": error.message}}, status=error.status)
             except web.HTTPException as error:
                 response = web.json_response({"error": {"code": "http_error", "message": error.reason}}, status=error.status)
-            except Exception:
-                LOG.exception("Relay request failed")
+            except Exception as error:
+                # Exception strings/tracebacks may contain upstream payloads or URLs.
+                LOG.error("Relay request failed (%s)", type(error).__name__)
                 response = web.json_response({"error": {"code": "internal_error", "message": "Relay request failed."}}, status=500)
             if not response.prepared:
                 response.headers["Cache-Control"] = "no-store"
@@ -275,6 +278,23 @@ class RelayService:
             return response
 
         app = web.Application(middlewares=[boundary], client_max_size=16 * 1024)
+        async def cleanup_expired():
+            while True:
+                await asyncio.sleep(self.prune_interval)
+                try:
+                    self.store.prune()
+                except Exception as error:
+                    LOG.error("Relay retention cleanup failed (%s)", type(error).__name__)
+
+        async def retention(app):
+            task = asyncio.create_task(cleanup_expired())
+            try:
+                yield
+            finally:
+                task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await task
+        app.cleanup_ctx.append(retention)
         async def health(request):
             return web.json_response({"service": "guildport", "api_version": 1})
         app.add_routes([

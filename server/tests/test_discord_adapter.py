@@ -139,7 +139,7 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
             client = discord.Client(intents=configure_intents(discord.Intents.none()))
             tree = app_commands.CommandTree(client)
             plugin = RelayPlugin(client, tree, Path(directory)/"state"/"relay.sqlite3", "http://127.0.0.1:8769", 0)
-            self.assertEqual([c.name for c in tree.get_commands()], ["register", "relay-account", "relay"])
+            self.assertEqual([c.name for c in tree.get_commands()], ["register", "dcgp", "relay-account", "relay"])
             await plugin.start()
             await plugin.start()
             await plugin.close()

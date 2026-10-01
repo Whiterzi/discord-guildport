@@ -8,6 +8,7 @@ The standalone host reads these environment variables:
 | `GUILDPORT_PUBLIC_URL` | HTTPS origin shown during registration | `http://127.0.0.1:8769` |
 | `GUILDPORT_PORT` | Loopback API port | `8769` |
 | `GUILDPORT_DATABASE` | SQLite file in a dedicated directory | `.runtime/relay/relay.sqlite3` |
+| `GUILDPORT_DELIVERY_RETENTION_HOURS` | Send metadata retention, integer 6–168 hours | `24` |
 | `GUILDPORT_TEST_GUILD` | Guild-scoped development command sync | global commands |
 
 Supply them through your service manager or secure environment loader. The standalone host does not automatically load `.env`. Keep the working directory fixed so relative database paths remain stable.
@@ -27,6 +28,10 @@ location / {
 ```
 
 Do not expose the checkout, SQLite files or bot environment as static files. Disable/redact request body and Authorization logging. TLS, encrypted storage/backups, an operator privacy policy, user support and deletion handling are deployment responsibilities.
+
+Relay messages are not end-to-end encrypted. The relay operator and a TLS-terminating proxy provider can process plaintext. Keep proxy caching disabled for the entire API, including authenticated history and event streams; responses carry `Cache-Control: no-store`. Do not enable proxy body logging or use a cache-everything override. The plugin's HTTP access log is disabled; upstream and host logs require separate configuration.
+
+Send metadata is pruned every five minutes while running and at startup/login. The retention default is 24 hours; accounts remain until explicitly deleted. The store creates a private `<database>.hmac-key` beside SQLite. Back up and restore them together under the same access controls, with a separate backup expiry/deletion policy. The key does not encrypt messages or protect against the host operator. See [data handling](privacy.md).
 
 Limits are conservative: 3 streams per user, 50 streams per instance, 120 API calls per minute per account, 20 sends per minute per account, plus login throttling. Client IP headers are not trusted. A reverse proxy makes the IP login bucket shared (40/minute); do not raise limits or trust forwarded headers without implementing a trusted-proxy boundary.
 

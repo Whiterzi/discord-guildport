@@ -4,11 +4,12 @@ An interactive terminal client for Discord communities, served through a bot you
 
 Run `dcgp`, pick a server and channel with the arrow keys, and chat. GuildPort uses its own accounts and device sessions. Discord messages are sent by the bot with explicit sender attribution; GuildPort never asks for a Discord user password or user token.
 
-**Status: experimental alpha.** The HTTP API, CLI, and Discord adapter have automated tests, including a CLI-to-Python integration test. Live Discord deployment and npm publication are separate release steps. This project is not affiliated with or approved by Discord.
+**Status: experimental alpha.** The HTTP API, CLI, and Discord adapter have automated tests, including a CLI-to-Python integration test. The CLI is published to npm; each relay deployment still requires its own live Discord validation. This project is not affiliated with or approved by Discord.
 
 ## What it does
 
-- `/register` creates an account tied to the invoking Discord user; credentials are returned ephemerally.
+- `/register` shows a privacy notice and creates an account after the invoking user agrees; credentials are returned ephemerally.
+- `/dcgp` privately generates copyable login/menu commands using the published CLI, with the relay URL and username prefilled. Passwords and tokens never appear in these commands.
 - `dcgp` opens an interactive login/menu. Use ↑/↓ and Enter to choose a shared server and an enabled channel.
 - Chat receives live messages while preserving your current input. `/back` returns to the channel picker.
 - Scriptable commands provide listing, history, sending and newline-delimited event output.
@@ -62,7 +63,7 @@ npm install --global ./discord-guildport-0.1.0-alpha.1.tgz
 dcgp
 ```
 
-After the maintainer publishes the alpha to npm, installation will be `npm install --global discord-guildport@alpha`. Until then use the local tarball; a repository push does not publish to npm.
+The CLI is available on npm: `npm install --global discord-guildport@alpha`. Alternatively, use `/dcgp` in Discord for pinned `npx` commands without a global installation. The current server changes remain compatible with CLI `0.1.0-alpha.1`; pushing this repository does not publish a new npm version.
 
 ## Discord setup
 
@@ -71,7 +72,7 @@ After the maintainer publishes the alpha to npm, installation will be `npm insta
 3. Set `DISCORD_TOKEN` securely in the process environment. Set `GUILDPORT_TEST_GUILD` to restrict development command sync to one server. `GUILDPORT_PUBLIC_URL` defaults to `http://127.0.0.1:8769`; external clients require your own HTTPS origin.
 4. Start the development bot with `.venv/bin/python -m guildport.standalone`.
 5. A server administrator uses `/relay enable channel:#general`, after informing members how this relay processes messages. Installation alone does not enable channels.
-6. Each user runs `/register` in Discord and logs in with `dcgp`.
+6. Each user runs `/register` in Discord, reads and accepts the privacy notice, then uses `/dcgp` for copyable login and interactive menu commands. Login prompts for the password separately.
 
 No Discord credentials belong in the CLI. For production, terminate TLS at a reverse proxy; the API binds only to `127.0.0.1`. See [deployment](docs/deployment.md), [embedding](docs/embedding.md), and [data handling](docs/privacy.md).
 
@@ -107,7 +108,8 @@ Login prompts for the password without echoing it. Automation can use `--passwor
 - This is not a complete replacement for Discord's client-side blocking, AutoMod or third-party moderation behavior. Operators must assess those differences before enabling a channel; bot messages may be treated differently by moderation systems.
 - Fresh REST permission checks favor isolation over scale. This alpha targets small deployments; API throttling can temporarily make channels unavailable. Do not deploy it as a large public relay without load testing and further review.
 - Live streams reconnect with bounded backoff and refresh the latest 100 messages. Longer offline gaps require explicit history pagination. Slow consumers are disconnected and asked to resync.
-- Send requests have persisted idempotency IDs. An uncertain Discord delivery is never automatically replayed. Check history before sending again after a delivery error.
+- Messages are not end-to-end encrypted. The relay operator and any TLS-terminating proxy provider can process plaintext. Message bodies are not stored in the relay database. Send metadata uses keyed HMAC fingerprints and is removed after 24 hours by default (cleanup every five minutes while running). See [data handling](docs/privacy.md) for retention settings, backup limits and operator responsibilities.
+- Send requests have persisted idempotency IDs only within the configured retention window. An uncertain Discord delivery is never automatically replayed. Check history before sending again after a delivery error or an expired reservation.
 
 ## Development and validation
 

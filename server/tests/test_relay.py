@@ -6,6 +6,7 @@ import tempfile
 import time
 import unittest
 import uuid
+from unittest.mock import patch
 
 from aiohttp.test_utils import TestClient, TestServer
 
@@ -59,7 +60,7 @@ class RelayTests(unittest.IsolatedAsyncioTestCase):
         self.other_token, _ = self.store.session(OTHER, "test")
         self.headers = {"Authorization": "Bearer " + self.token}
         self.adapter = FakeAdapter()
-        self.service = RelayService(self.store, self.adapter, heartbeat=0.03)
+        self.service = RelayService(self.store, self.adapter, heartbeat=0.03, prune_interval=0.03)
         self.client = TestClient(TestServer(self.service.application()))
         await self.client.start_server()
 
@@ -99,6 +100,25 @@ class RelayTests(unittest.IsolatedAsyncioTestCase):
             self.service.limits.check("login-name:gp_300", 10, 60)
         response = await self.client.post("/v1/login", json={"username": "gp_300", "password": PASSWORD})
         self.assertEqual(response.status, 429)
+
+    async def test_idle_service_prunes_without_login_or_requests(self):
+        self.store.reserve_delivery(USER, "expired", CHANNEL, self.store.content_digest("hello"))
+        self.store.db.execute("UPDATE deliveries SET created_at=0")
+        self.store.db.execute("UPDATE sessions SET expires_at=0")
+        deadline = asyncio.get_running_loop().time() + 2
+        while self.store.delivery(USER, "expired") and asyncio.get_running_loop().time() < deadline:
+            await asyncio.sleep(0.01)
+        self.assertIsNone(self.store.delivery(USER, "expired"))
+        self.assertEqual(self.store.db.execute("SELECT count(*) FROM sessions").fetchone()[0], 0)
+
+    async def test_unexpected_error_does_not_log_payload_or_traceback(self):
+        with patch.object(self.adapter, "authorize", side_effect=RuntimeError("SECRET_BODY_AND_TOKEN")):
+            with self.assertLogs("guildport.server", level="ERROR") as logs:
+                response = await self.get(f"/v1/channels/{CHANNEL}/messages")
+        self.assertEqual(response.status, 500)
+        self.assertNotIn("SECRET_BODY_AND_TOKEN", str(logs.output))
+        self.assertNotIn("SECRET_BODY_AND_TOKEN", await response.text())
+        self.assertIn("RuntimeError", str(logs.output))
 
     async def test_authentication_required_and_query_token_rejected(self):
         for path in ("/v1/guilds", f"/v1/guilds?token={self.token}"):

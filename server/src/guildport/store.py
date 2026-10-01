@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import os
 from pathlib import Path
 import secrets
@@ -32,7 +33,12 @@ def token_hash(token: str) -> str:
 
 
 class Store:
-    def __init__(self, path: Path, session_seconds: int = 7 * 86400):
+    def __init__(self, path: Path, session_seconds: int = 7 * 86400,
+                 delivery_retention_hours: int = 24):
+        # Retain enough slowmode state for Discord's maximum six-hour slowmode.
+        if not isinstance(delivery_retention_hours, int) or not 6 <= delivery_retention_hours <= 168:
+            raise ValueError("delivery_retention_hours must be an integer between 6 and 168.")
+        self.delivery_retention_hours = delivery_retention_hours
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         # This directory must be dedicated to relay state, not the project root.
@@ -43,6 +49,7 @@ class Store:
         self.db = sqlite3.connect(path)
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA foreign_keys=ON")
+        self.db.execute("PRAGMA secure_delete=ON")
         self.session_seconds = session_seconds
         self.db.executescript("""
             CREATE TABLE IF NOT EXISTS accounts (
@@ -62,8 +69,47 @@ class Store:
                 message_id TEXT, created_at REAL NOT NULL,
                 PRIMARY KEY(discord_id, request_id));
             CREATE INDEX IF NOT EXISTS delivery_channel ON deliveries(discord_id, channel_id);
+            CREATE TABLE IF NOT EXISTS store_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
         """)
-        self.prune()
+        try:
+            self.prune()
+            self._load_digest_key(path.with_suffix(path.suffix + ".hmac-key"))
+            # Upgrade old SHA-256 fingerprints without losing pending reservations.
+            # Hashing the SHA-256 representation lets us migrate without message bodies.
+            with self.db:
+                for row in self.db.execute("SELECT discord_id,request_id,content_hash FROM deliveries").fetchall():
+                    if not row["content_hash"].startswith("hmac-v1:"):
+                        self.db.execute("UPDATE deliveries SET content_hash=? WHERE discord_id=? AND request_id=?",
+                            (self._keyed_digest(row["content_hash"]), row["discord_id"], row["request_id"]))
+        except BaseException:
+            self.db.close()
+            raise
+
+    def _load_digest_key(self, path: Path):
+        existing = self.db.execute("SELECT value FROM store_meta WHERE key='digest_key_id'").fetchone()
+        if not path.exists():
+            if existing:
+                raise ValueError("Missing delivery HMAC key; restore it with the database before starting.")
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "wb") as stream:
+                stream.write(secrets.token_bytes(32))
+                stream.flush()
+                os.fsync(stream.fileno())
+        os.chmod(path, 0o600)
+        self._digest_key = path.read_bytes()
+        if len(self._digest_key) != 32:
+            raise ValueError("Invalid delivery HMAC key.")
+        key_id = hashlib.sha256(self._digest_key).hexdigest()
+        if existing and not hmac.compare_digest(existing[0], key_id):
+            raise ValueError("Delivery HMAC key does not match this database.")
+        with self.db:
+            self.db.execute("INSERT OR IGNORE INTO store_meta VALUES ('digest_key_id',?)", (key_id,))
+
+    def _keyed_digest(self, sha256_hex: str) -> str:
+        return "hmac-v1:" + hmac.new(self._digest_key, sha256_hex.encode(), hashlib.sha256).hexdigest()
+
+    def content_digest(self, content: str) -> str:
+        return self._keyed_digest(hashlib.sha256(content.encode()).hexdigest())
 
     def close(self):
         self.db.close()
@@ -71,7 +117,8 @@ class Store:
     def prune(self):
         with self.db:
             self.db.execute("DELETE FROM sessions WHERE expires_at <= ?", (time.time(),))
-            self.db.execute("DELETE FROM deliveries WHERE created_at < ?", (time.time() - 30 * 86400,))
+            self.db.execute("DELETE FROM deliveries WHERE created_at < ?",
+                            (time.time() - self.delivery_retention_hours * 3600,))
 
     def account(self, user_id: str):
         return self.db.execute("SELECT * FROM accounts WHERE discord_id=?", (user_id,)).fetchone()
