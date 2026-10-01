@@ -17,7 +17,8 @@ class RelayBot(discord.Client):
             Path(os.getenv("GUILDPORT_DATABASE", ".runtime/relay/relay.sqlite3")),
             os.getenv("GUILDPORT_PUBLIC_URL", "http://127.0.0.1:8769"),
             int(os.getenv("GUILDPORT_PORT", "8769")),
-            delivery_retention_hours=int(os.getenv("GUILDPORT_DELIVERY_RETENTION_HOURS", "24")))
+            delivery_retention_hours=int(os.getenv("GUILDPORT_DELIVERY_RETENTION_HOURS", "24")),
+            read_recheck_seconds=float(os.getenv("GUILDPORT_READ_RECHECK_SECONDS", "5")))
 
     async def setup_hook(self):
         guild = os.getenv("GUILDPORT_TEST_GUILD")

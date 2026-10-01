@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import tempfile
@@ -66,6 +67,47 @@ class DiscordAdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.client.fetch_guild.await_count, 2)
         self.assertEqual(self.fetch_members.await_count, 4)
         self.assertEqual(self.fetch_channels.await_count, 2)
+
+    async def test_snapshot_requests_run_concurrently_and_only_share_in_flight(self):
+        started = set()
+        all_started, release = asyncio.Event(), asyncio.Event()
+
+        async def endpoint(name, value):
+            started.add(name)
+            if len(started) == 4:
+                all_started.set()
+            await release.wait()
+            return value
+
+        async def guild(*args, **kwargs):
+            return await endpoint("guild", self.guild)
+        async def channels():
+            return await endpoint("channels", [self.channel])
+        async def member(member_id):
+            return await endpoint(str(member_id), self.user if member_id == 300 else self.bot)
+        self.client.fetch_guild.side_effect = guild
+        self.fetch_channels.side_effect = channels
+        self.fetch_members.side_effect = member
+        first = asyncio.create_task(self.adapter.authorize("300", "100", "200"))
+        second = asyncio.create_task(self.adapter.authorize("300", "100", "200"))
+        try:
+            await asyncio.wait_for(all_started.wait(), 1)
+            first.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await first
+            release.set()
+            access = await second
+            self.assertTrue(access.can_send)
+            self.assertIs(access.target.guild, self.guild)
+            self.assertIs(self.user.guild, self.guild)
+            self.assertEqual(self.client.fetch_guild.await_count, 1)
+            self.channel = self.make_channel(deny_user=True)
+            with self.assertRaises(RelayError):
+                await self.adapter.authorize("300", "100", "200")
+            self.assertEqual(self.client.fetch_guild.await_count, 2)
+        finally:
+            release.set()
+            await asyncio.gather(first, second, return_exceptions=True)
 
     async def test_bot_permission_does_not_substitute_for_member_permission(self):
         for settings in ({"deny_bot": True}, {"deny_user": True}, {"nsfw": True}, {"kind": 5}):

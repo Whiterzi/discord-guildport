@@ -9,11 +9,13 @@ npm install --global discord-guildport@alpha
 dcgp
 ```
 
-Use ↑/↓ and Enter to log in, choose a shared server and select a channel. Chat opens a full-screen view with a fixed channel header and bottom composer. Esc returns one level, Page Up / Page Down scroll, End follows the latest messages, and F2 shows IDs. New messages preserve your draft and reading position; Page Up at the top fetches older history (up to 500 messages per session). Run `/register` in Discord, read the privacy notice and accept it to obtain your GuildPort account and password. `/dcgp` privately supplies copyable login/menu commands with the URL and account filled in; passwords are entered separately at the CLI prompt.
+Use ↑/↓ and Enter to log in, choose a shared server and select a channel. Menus fill one screen; type to filter servers/channels, Ctrl+U clears search, and Esc goes back. Refresh/back remain available even when nothing matches. Chat opens a full-screen view with a fixed channel header and bottom composer. Esc returns one level, Page Up / Page Down scroll, End follows the latest messages, and F2 shows IDs. New messages preserve your draft and reading position; Page Up at the top fetches older history (up to 500 messages per session). Run `/register` in Discord, read the privacy notice and accept it to obtain your GuildPort account and password. `/dcgp` privately supplies copyable login/menu commands with the URL and account filled in; passwords are entered separately at the CLI prompt.
 
-This checkout prepares **0.1.0-alpha.2**; npm serves the version most recently published by the maintainer. Build and install a local tarball to try changes before publication.
+This checkout prepares **0.1.0-alpha.3**; npm serves the version most recently published by the maintainer. Build and install a local tarball to try changes before publication.
 
-Enter sends the draft. Left/right moves its cursor, Ctrl+J inserts a newline, and Ctrl+U clears it. Multiline bracketed paste stays in the draft until Enter. `/back` also returns from chat. No local chat archive is written; `history --json` and `watch --json` remain available for scripts.
+Enter sends the draft. Left/right moves its cursor, Shift+Enter (on supported terminals) or Ctrl+J inserts a newline, and Ctrl+U clears it. Multiline bracketed paste stays in the draft until Enter. `/back` also returns from chat. No local chat archive is written; `history --json` and `watch --json` remain available for scripts.
+
+Shift+Enter uses Kitty/CSI-u or xterm modified-key sequences. Some terminals encode Shift+Enter exactly like Enter; use Ctrl+J there, or map Shift+Enter to `\x1b[13;2u` in terminal settings.
 
 Requires Node.js 22.13+ and an ANSI terminal for full-screen chat. The CLI is available on npm; see the [project README](https://github.com/Whiterzi/discord-guildport) for relay setup and local tarball installation.
 

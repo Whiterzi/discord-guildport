@@ -59,11 +59,11 @@ To install the CLI from this checkout:
 ```sh
 cd cli
 npm pack
-npm install --global ./discord-guildport-0.1.0-alpha.2.tgz
+npm install --global ./discord-guildport-0.1.0-alpha.3.tgz
 dcgp
 ```
 
-The CLI is available on npm: `npm install --global discord-guildport@alpha`. Alternatively, use `/dcgp` in Discord for `npx` commands following the npm `alpha` tag without a global installation. This checkout prepares CLI `0.1.0-alpha.2` with full-screen chat. Until its maintainer publishes it, npm may still serve alpha.1; install the local tarball to try the new UI immediately. The server remains compatible with alpha.1. Pushing this repository does not publish a new npm version.
+The CLI is available on npm: `npm install --global discord-guildport@alpha`. Alternatively, use `/dcgp` in Discord for `npx` commands following the npm `alpha` tag without a global installation. This checkout prepares CLI `0.1.0-alpha.3` with searchable full-screen menus and Shift+Enter support. Until its maintainer publishes it, npm may still serve alpha.2; install the local tarball to try the new UI immediately. The server remains compatible with alpha.1. Pushing this repository does not publish a new npm version.
 
 ## Discord setup
 
@@ -108,9 +108,13 @@ Login prompts for the password without echoing it. Automation can use `--passwor
 | End | Follow the latest messages and clear the new-message count |
 | Home | Go to the oldest loaded message |
 | ← / →, Ctrl+A / Ctrl+E | Move the draft cursor |
-| Ctrl+J | Insert a line break; bracketed multiline paste stays in the draft until Enter |
+| Shift+Enter / Ctrl+J | Insert a line break (Shift+Enter requires terminal support); bracketed multiline paste stays in the draft until Enter |
 | Ctrl+U | Clear the draft |
 | F2 | Toggle message IDs |
+
+Selection menus use a fixed full-screen layout. Type to filter servers/channels, Ctrl+U clears the filter, and Page Up/Down pages through longer lists. Returning from chat keeps the previous channel selected. Refresh and back remain available when nothing matches.
+
+Shift+Enter is recognized via the [Kitty keyboard protocol](https://sw.kovidgoyal.net/kitty/keyboard-protocol/) or xterm modified-key sequences. A legacy terminal may send exactly the same bytes for Enter and Shift+Enter; in that case use Ctrl+J or configure your terminal to send `\x1b[13;2u` for Shift+Enter. Keyboard mode is restored on exit.
 
 The header shows connection/read-only state. Times use the local time zone, dates separate days, and the body renders basic Markdown as readable text. Spoilers are hidden as `[spoiler]`; terminal controls are stripped. The view retains up to 500 messages in memory. No local chat history is written. `history --json` and `watch --json` retain structured output; use `history --details` for visible IDs. A terminal supporting ANSI alternate-screen and bracketed paste is required for full-screen chat. The generic `watch` command remains available for plain streaming output.
 
@@ -122,7 +126,7 @@ The header shows connection/read-only state. Times use the local time zone, date
 - Bot-visible permissions cannot prove email/phone verification. In a server with verification enabled, sending is conservatively read-only unless Discord reports an explicit member verification exemption or administrator status. The channel list explains this restriction. Do not weaken a server's verification requirements for this tool.
 - Slowmode covers relay sends and recent native Discord sends. If a busy channel's slowmode window cannot be fully checked within 101 messages, sending is refused.
 - This is not a complete replacement for Discord's client-side blocking, AutoMod or third-party moderation behavior. Operators must assess those differences before enabling a channel; bot messages may be treated differently by moderation systems.
-- Fresh REST permission checks favor isolation over scale. This alpha targets small deployments; API throttling can temporarily make channels unavailable. Do not deploy it as a large public relay without load testing and further review.
+- Send/history operations use fresh REST permission checks. Live streams recheck Discord permissions every 5 seconds by default and pause delivery during revalidation; logout, channel-disable and Gateway readiness are checked before every batch. Discord permission revocation can therefore lag briefly. Set `GUILDPORT_READ_RECHECK_SECONDS=0` for fresh checks per batch. REST lookups run concurrently and share only requests still in flight. This alpha targets small deployments; API throttling can still make channels unavailable.
 - Live streams reconnect with bounded backoff and refresh the latest 100 messages. Longer offline gaps require explicit history pagination. Slow consumers are disconnected and asked to resync.
 - Messages are not end-to-end encrypted. The relay operator and any TLS-terminating proxy provider can process plaintext. Message bodies are not stored in the relay database. Send metadata uses keyed HMAC fingerprints and is removed after 24 hours by default (cleanup every five minutes while running). See [data handling](docs/privacy.md) for retention settings, backup limits and operator responsibilities.
 - Send requests have persisted idempotency IDs only within the configured retention window. An uncertain Discord delivery is never automatically replayed. Check history before sending again after a delivery error or an expired reservation.

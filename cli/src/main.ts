@@ -97,7 +97,7 @@ async function watch(api: Api, channel: string, json: boolean, signal: AbortSign
   }
 }
 
-const program = new Command().name('dcgp').description('Chat through a GuildPort Discord relay.').version('0.1.0-alpha.2');
+const program = new Command().name('dcgp').description('Chat through a GuildPort Discord relay.').version('0.1.0-alpha.3');
 program.action(async () => interactive(chat));
 program.command('browse').description('Select servers and channels with arrow keys.').action(async () => interactive(chat));
 

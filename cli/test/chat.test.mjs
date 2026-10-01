@@ -55,6 +55,20 @@ test('split bracketed paste never dispatches Enter or escape and preserves line 
   assert.deepEqual(keys,['enter','pageup','exit']);
 });
 
+test('Shift+Enter supports split CSI-u and xterm packets; releases never send',()=>{
+  const keys=[],text=[];
+  const input=new ChatInput(key=>keys.push(key),value=>text.push(value));
+  for(const sequence of ['\x1b[13;2u','\x1b[27;2;13~','\x1b[13;2:1u','\x1b[106;5u']) {
+    for(const char of sequence)input.feed(char);
+  }
+  input.feed('\x1b[13;2:3u\x1b[13;1:3u\x1b[13;1:2u');
+  assert.deepEqual(keys,['newline','newline','newline','newline']);
+  input.feed('\x1b[13u\x1b[13;1u\x1b[99;5u\x1b[117;5u\x1b[27u');
+  assert.deepEqual(keys.slice(4),['enter','enter','interrupt','clear','exit']);
+  input.feed('\x1b[?1u\x1b[99;3:1uplain text');
+  assert.equal(text.join(''),'plain text');
+});
+
 test('timeline deduplicates, removes deletes, replaces edits and reconciles reconnect history',()=>{
   const timeline=new Timeline();
   timeline.upsert(message(1));timeline.upsert(message(2));

@@ -4,6 +4,7 @@ import asyncio
 from contextlib import asynccontextmanager, suppress
 import json
 import logging
+import math
 import re
 import time
 import uuid
@@ -61,12 +62,16 @@ def bearer(request):
 
 
 class RelayService:
-    def __init__(self, store: Store, adapter: Adapter, hub=None, heartbeat=10, prune_interval=300):
+    def __init__(self, store: Store, adapter: Adapter, hub=None, heartbeat=10, prune_interval=300,
+                 read_recheck_seconds=5):
         if prune_interval <= 0:
             raise ValueError("prune_interval must be positive.")
+        if not math.isfinite(read_recheck_seconds) or not 0 <= read_recheck_seconds <= 30:
+            raise ValueError("read_recheck_seconds must be between 0 and 30; 0 checks every batch.")
         self.store, self.adapter = store, adapter
         self.hub = hub or EventHub()
         self.heartbeat = heartbeat
+        self.read_recheck_seconds = read_recheck_seconds
         self.prune_interval = prune_interval
         self.limits = RateLimit()
         self.password_slots = asyncio.Semaphore(4)
@@ -131,14 +136,19 @@ class RelayService:
         return web.json_response({"ok": True})
 
     async def available(self, user_id, guild_id=None):
-        result = []
-        for row in self.store.channels(guild_id):
+        async def check(row):
             try:
-                access = await self.access(user_id, row["channel_id"])
-                result.append(access)
+                return await self.access(user_id, row["channel_id"])
             except RelayError as error:
                 if error.status not in (403, 404):
                     raise
+                return None
+        result = []
+        rows = self.store.channels(guild_id)
+        # Bound fan-out; concurrent checks in one guild share an in-flight
+        # Discord snapshot without retaining a permission cache.
+        for start in range(0, len(rows), 4):
+            result.extend(a for a in await asyncio.gather(*(check(row) for row in rows[start:start+4])) if a)
         return result
 
     async def guilds(self, request):
@@ -215,6 +225,7 @@ class RelayService:
     async def events(self, request):
         user_id, channel_id = request["user"]["discord_id"], request.match_info["channel_id"]
         await self.access(user_id, channel_id)
+        next_check = time.monotonic() + self.read_recheck_seconds
         self.store.authenticate(bearer(request))
         if self.streams.get(user_id, 0) >= 3 or sum(self.streams.values()) >= 50:
             raise RelayError(429, "stream_limit", "Too many active streams.")
@@ -227,21 +238,45 @@ class RelayService:
             await response.write(b'event: ready\ndata: {}\n\n')
             while not self.closing:
                 try:
-                    event = await asyncio.wait_for(queue.get(), self.heartbeat)
+                    timeout = self.heartbeat
+                    if self.read_recheck_seconds:
+                        timeout = min(timeout, max(0, next_check - time.monotonic()))
+                    event = await asyncio.wait_for(queue.get(), timeout)
                 except asyncio.TimeoutError:
                     event = None
+                # Freeze the already queued burst before checking access. Newly
+                # arriving messages are considered on the next loop iteration.
+                batch = [] if event is None else [event]
+                while not queue.empty():
+                    batch.append(queue.get_nowait())
                 try:
                     self.store.authenticate(bearer(request))
-                    await self.access(user_id, channel_id)
+                    if not self.read_recheck_seconds or time.monotonic() >= next_check:
+                        await self.access(user_id, channel_id)
+                        next_check = time.monotonic() + self.read_recheck_seconds
+                    # These cheap local checks NEVER use the read permission
+                    # interval. Do not forward after logout/disable/disconnect.
+                    if self.store.channel(channel_id) is None:
+                        raise RelayError(403, "channel_unavailable", "Channel is no longer enabled.")
+                    ready = getattr(self.adapter, "ready", None)
+                    if ready:
+                        ready()
                     self.store.authenticate(bearer(request))
                 except RelayError as error:
                     await response.write(("event: revoked\ndata: " + json.dumps({"code": error.code}) + "\n\n").encode())
                     break
-                if event is None:
+                if not batch:
                     await response.write(b": heartbeat\n\n")
                 else:
-                    await response.write(("event: relay\ndata: " + json.dumps(event) + "\n\n").encode())
-                    if event["type"] == "resync_required":
+                    frames = []
+                    resync = False
+                    for item in batch:
+                        frames.append("event: relay\ndata: " + json.dumps(item) + "\n\n")
+                        if item["type"] == "resync_required":
+                            resync = True
+                            break
+                    await response.write("".join(frames).encode())
+                    if resync:
                         break
         except (ConnectionError, asyncio.CancelledError):
             pass

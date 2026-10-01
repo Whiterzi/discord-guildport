@@ -9,6 +9,7 @@ The standalone host reads these environment variables:
 | `GUILDPORT_PORT` | Loopback API port | `8769` |
 | `GUILDPORT_DATABASE` | SQLite file in a dedicated directory | `.runtime/relay/relay.sqlite3` |
 | `GUILDPORT_DELIVERY_RETENTION_HOURS` | Send metadata retention, integer 6–168 hours | `24` |
+| `GUILDPORT_READ_RECHECK_SECONDS` | Live-read permission interval, 0–30 seconds; 0 checks each batch. Send/history stay fresh. | `5` |
 | `GUILDPORT_TEST_GUILD` | Guild-scoped development command sync | global commands |
 
 Supply them through your service manager or secure environment loader. The standalone host does not automatically load `.env`. Keep the working directory fixed so relative database paths remain stable.

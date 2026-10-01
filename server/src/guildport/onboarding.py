@@ -12,7 +12,10 @@ LOG = logging.getLogger(__name__)
 CLI_PACKAGE = "discord-guildport@alpha"
 
 
-def privacy_notice(retention_hours: int) -> str:
+def privacy_notice(retention_hours: int, read_recheck_seconds: float = 5) -> str:
+    checks = (f"接收權限每 {read_recheck_seconds:g} 秒重查；Discord 撤權後可能短暫繼續接收，"
+              "重查期間暫停轉送，查詢失敗即中止。送出訊息前會即時重查。\n"
+              if read_recheck_seconds else "每批收訊與每次送出前都會重查 Discord 權限。\n")
     return (
         "**GuildPort 隱私說明**\n"
         "訊息會經過 Relay 主機，並非端對端加密；主機管理者可讀取內容，"
@@ -23,6 +26,7 @@ def privacy_notice(retention_hours: int) -> str:
         "帳號與 Discord ID 綁定，保留至刪除帳號；登入有效七天，可隨時撤銷。"
         "刪除帳號不會刪除已送到 Discord 的訊息、收件者副本或既有備份。\n"
         "僅開放管理員啟用且你與 bot 都有權限的頻道；代送訊息會標示你的身分。\n"
+        + checks +
         "[完整資料處理說明](https://github.com/Whiterzi/discord-guildport/blob/main/docs/privacy.md)"
     )
 

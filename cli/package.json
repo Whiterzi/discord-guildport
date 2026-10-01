@@ -1,6 +1,6 @@
 {
   "name": "discord-guildport",
-  "version": "0.1.0-alpha.2",
+  "version": "0.1.0-alpha.3",
   "description": "A terminal client for permission-checked GuildPort Discord relays",
   "type": "module",
   "license": "MIT",

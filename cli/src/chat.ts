@@ -106,7 +106,7 @@ export async function chat(api: Api, channel: string, title=channel, readOnly=fa
   };
   const input=new ChatInput(key=>{
     const height=Math.max(1,size().rows-8);
-    if (key==='exit') close();
+    if (key==='exit' || key==='interrupt') close();
     else if (key==='up') scroll(-1);
     else if (key==='down') scroll(1);
     else if (key==='pageup') scroll(-height);
@@ -175,7 +175,7 @@ export async function chat(api: Api, channel: string, title=channel, readOnly=fa
   const terminate=()=>{exitSignal=143;close();};
   let watching:Promise<void>|undefined;
   try {
-    process.stdout.write('\x1b[?1049h\x1b[?2004h\x1b[2J');
+    process.stdout.write('\x1b[?1049h\x1b[>1u\x1b[?2004h\x1b[2J');
     process.stdin.setRawMode(true); process.stdin.resume();
     process.stdin.on('data',onData);
     process.stdout.on('resize',draw);
@@ -190,7 +190,7 @@ export async function chat(api: Api, channel: string, title=channel, readOnly=fa
     // A fresh stdin reports isPaused()=false even before it starts flowing.
     // Always release our read handle; the next picker resumes stdin itself.
     process.stdin.pause();
-    process.stdout.write('\x1b[0m\x1b[?2004l\x1b[?25h\x1b[?1049l');
+    process.stdout.write('\x1b[<u\x1b[0m\x1b[?2004l\x1b[?25h\x1b[?1049l');
     await watching;
     await Promise.allSettled([...pending]);
   }

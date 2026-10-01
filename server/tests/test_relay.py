@@ -60,7 +60,8 @@ class RelayTests(unittest.IsolatedAsyncioTestCase):
         self.other_token, _ = self.store.session(OTHER, "test")
         self.headers = {"Authorization": "Bearer " + self.token}
         self.adapter = FakeAdapter()
-        self.service = RelayService(self.store, self.adapter, heartbeat=0.03, prune_interval=0.03)
+        self.service = RelayService(self.store, self.adapter, heartbeat=0.03, prune_interval=0.03,
+                                    read_recheck_seconds=0)
         self.client = TestClient(TestServer(self.service.application()))
         await self.client.start_server()
 
@@ -250,6 +251,91 @@ class RelayTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("event: revoked", frame)
         self.assertNotIn("secret", frame)
         response.close()
+
+    async def test_stream_interval_shares_read_check_but_send_remains_fresh(self):
+        self.service.read_recheck_seconds = 5
+        with patch.object(self.adapter, "authorize", wraps=self.adapter.authorize) as authorize:
+            response = await self.get(f"/v1/channels/{CHANNEL}/events")
+            await self.read_frame(response)
+            self.adapter.allowed.clear()
+            # This is the explicitly documented permission revocation window.
+            for n in range(3):
+                self.service.hub.publish(CHANNEL, {"type": "message.created", "message": {"content": f"message {n}"}})
+                self.assertIn(f"message {n}", await self.read_frame(response))
+            self.assertEqual(authorize.await_count, 1)
+            self.assertEqual((await self.send()).status, 403)
+            self.assertEqual(authorize.await_count, 2)
+            self.assertEqual((await self.get(f"/v1/channels/{CHANNEL}/messages")).status, 403)
+            response.close()
+
+    async def test_stream_rechecks_on_expiry_and_does_not_forward_during_check(self):
+        self.service.read_recheck_seconds = 0.08
+        checking, release = asyncio.Event(), asyncio.Event()
+        original = self.adapter.authorize
+        calls = 0
+
+        async def verify(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            if calls > 1:
+                checking.set()
+                await release.wait()
+            return await original(*args, **kwargs)
+
+        with patch.object(self.adapter, "authorize", side_effect=verify):
+            response = await self.get(f"/v1/channels/{CHANNEL}/events")
+            await self.read_frame(response)
+            try:
+                await asyncio.wait_for(checking.wait(), 1)
+                self.service.hub.publish(CHANNEL, {"type": "message.created", "message": {"content": "secret after expiry"}})
+                self.adapter.allowed.clear()
+                release.set()
+                while True:
+                    frame = await self.read_frame(response)
+                    self.assertNotIn("secret", frame)
+                    if "event: revoked" in frame:
+                        break
+            finally:
+                release.set()
+                response.close()
+
+    async def test_cached_read_never_bypasses_local_revocation_or_gateway_failure(self):
+        self.service.read_recheck_seconds = 5
+        for action in ("logout", "disable", "gateway"):
+            self.token, _ = self.store.session(USER, "test")
+            self.headers = {"Authorization": "Bearer " + self.token}
+            self.store.enable(GUILD, CHANNEL, USER)
+            response = await self.get(f"/v1/channels/{CHANNEL}/events")
+            await self.read_frame(response)
+            if action == "logout":
+                self.store.revoke(self.token)
+            elif action == "disable":
+                self.store.disable(CHANNEL)
+            else:
+                def disconnected():
+                    raise RelayError(503, "discord_unavailable", "Reconnecting")
+                self.adapter.ready = disconnected
+            self.service.hub.publish(CHANNEL, {"type": "message.created", "message": {"content": "secret"}})
+            frame = await self.read_frame(response)
+            self.assertIn("event: revoked", frame)
+            self.assertNotIn("secret", frame)
+            response.close()
+
+    async def test_strict_stream_checks_a_queued_burst_once_then_checks_new_arrivals(self):
+        with patch.object(self.adapter, "authorize", wraps=self.adapter.authorize) as authorize:
+            response = await self.get(f"/v1/channels/{CHANNEL}/events")
+            await self.read_frame(response)
+            for n in range(20):
+                self.service.hub.publish(CHANNEL, {"type": "message.created", "message": {"content": f"burst {n}"}})
+            for n in range(20):
+                self.assertIn(f"burst {n}", await self.read_frame(response))
+            self.assertEqual(authorize.await_count, 2)
+            self.adapter.allowed.clear()
+            self.service.hub.publish(CHANNEL, {"type": "message.created", "message": {"content": "secret"}})
+            frame = await self.read_frame(response)
+            self.assertIn("revoked", frame)
+            self.assertNotIn("secret", frame)
+            response.close()
 
     async def test_idle_stream_revoked_on_logout(self):
         response = await self.get(f"/v1/channels/{CHANNEL}/events")

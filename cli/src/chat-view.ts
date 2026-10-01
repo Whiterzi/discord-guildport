@@ -131,7 +131,7 @@ export function renderFrame(state: ChatState, columns: number, rows: number, col
   const draft = state.draft.display(w-3);
   lines.push(' > ' + draft.text);
   lines.push(paint(clip(` Enter send · Esc back · PgUp/PgDn scroll · End latest · F2 IDs`,w),'2'));
-  lines.push(paint(clip(` ${[...state.draft.text].length}/1800${state.draft.text.includes('\n') ? ' · multiline draft' : ''} · Ctrl+U clear · Ctrl+J newline · /back returns`,w),'2'));
+  lines.push(paint(clip(` ${[...state.draft.text].length}/1800${state.draft.text.includes('\n') ? ' · multiline draft' : ''} · Shift+Enter / Ctrl+J newline · Ctrl+U clear · /back returns`,w),'2'));
   return {lines,cursorRow:h-2,cursorColumn:Math.min(w,4+draft.cursor),height,top};
 }
 

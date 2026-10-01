@@ -77,11 +77,19 @@ def main():
             expect("Browse servers and channels")
             keys(b"\x1b[B\r")  # Account details: prove arrow navigation changes selection.
             expect("Expires:")
+            keys(b"\x1b")
             expect("Browse servers and channels")
             keys(b"\r")
             expect("Select a server")
+            expect("Refresh servers")
+            keys(b"missing-server")
+            expect("No matches")
+            keys(b"\x15Offline")
+            expect("Offline demo")
             keys(b"\x1b[B\x1b[A\r")
-            expect("select a channel")
+            expect("Select a channel")
+            expect("Refresh channels")
+            (tmp/'menu-screen.ansi').write_bytes(transcript)
             keys(b"\r")
             expect("/back returns")
             expect("Connected")
@@ -90,8 +98,17 @@ def main():
             expect("multiline draft")
             assert api('/v1/channels/200/messages?limit=1')['messages'][0]['id'] == '1119'
             keys(b"\r")
+            expect("Sending")
             expect("Sent")
             assert api('/v1/channels/200/messages?limit=1')['messages'][0]['content'] == 'PTY 中文 🌿\nsecond line'
+            # Both modified-Enter protocols insert line breaks, never submit.
+            keys(b"Shift first\x1b[13;2uShift second\x1b[27;2;13~Shift third")
+            expect("Shift third")
+            assert api('/v1/channels/200/messages?limit=1')['messages'][0]['content'] == 'PTY 中文 🌿\nsecond line'
+            keys(b"\r")
+            expect("Sending")
+            expect("Sent")
+            assert api('/v1/channels/200/messages?limit=1')['messages'][0]['content'] == 'Shift first\nShift second\nShift third'
             # Keep a draft and scroll position while another message arrives.
             keys(b"draft stays")
             expect("draft stays")
@@ -116,7 +133,7 @@ def main():
             # Esc exits chat and each nested picker; no typed /back is required.
             keys(b"\x1b")
             expect("\x1b[?1049l")
-            expect("select a channel")
+            expect("Select a channel")
             keys(b"\x1b")
             expect("Select a server")
             keys(b"\x1b")
@@ -135,6 +152,18 @@ def main():
                 except subprocess.TimeoutExpired:
                     raise AssertionError(f"Exit did not finish; output={output[-2500:]!r}")
             assert child.returncode == 0, output[-2500:]
+            # Menu signal handling must release raw mode and the alternate screen too.
+            output.clear()
+            slave=os.open(slave_name,os.O_RDWR)
+            child=subprocess.Popen([shutil.which('node'),cli],cwd=ROOT,
+                stdin=slave,stdout=slave,stderr=slave,env=env)
+            os.close(slave);slave=None
+            expect('Browse servers and channels')
+            child.send_signal(signal.SIGTERM)
+            expect('\x1b[?1049l')
+            child.wait(timeout=3)
+            assert child.returncode == 143
+            assert termios.tcgetattr(master)[3] & termios.ICANON
             # External termination and revoked access must also restore the terminal.
             for revoke in (False,True):
                 output.clear()
@@ -157,7 +186,7 @@ def main():
                 child.wait(timeout=3)
                 assert child.returncode == (1 if revoke else 143), child.returncode
                 assert termios.tcgetattr(master)[3] & termios.ICANON
-            print("Interactive PTY smoke passed: menus, multiline paste, live messages, draft preservation, scroll, history pagination, resize, Esc navigation, revocation, signal exit, terminal restore.")
+            print("Interactive PTY smoke passed: full-screen menus, filtering, Shift+Enter, multiline paste, live messages, draft preservation, scroll, history pagination, resize, Esc navigation, revocation, signal exit, terminal restore.")
     finally:
         if child and child.poll() is None:
             child.kill()

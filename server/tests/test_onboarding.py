@@ -10,7 +10,7 @@ import discord
 from discord import app_commands
 
 from guildport.models import RelayError
-from guildport.onboarding import quick_start
+from guildport.onboarding import privacy_notice, quick_start
 from guildport.plugin import RelayPlugin, configure_intents
 
 
@@ -128,6 +128,12 @@ class OnboardingTests(unittest.IsolatedAsyncioTestCase):
         args = shlex.split(command)
         self.assertEqual(args, ["npx", "--yes", "--package=discord-guildport@alpha",
             "dcgp", "login", "--server", "https://relay.example.com", "--username", "gp_300"])
+
+    def test_privacy_notice_discloses_actual_read_check_interval(self):
+        self.assertIn("每 5 秒", privacy_notice(24))
+        self.assertIn("每 10 秒", privacy_notice(24, 10))
+        self.assertIn("每批收訊", privacy_notice(24, 0))
+        self.assertIn("暫停轉送", privacy_notice(24, 5))
 
     def test_url_cannot_inject_shell_or_discord_formatting(self):
         for url in ("https://relay.example.com/'bad", "https://$(whoami).example.com",

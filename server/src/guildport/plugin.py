@@ -28,7 +28,7 @@ class RelayPlugin:
     """Owns relay state/lifecycle; the host owns its Discord client and command sync."""
     def __init__(self, client: discord.Client, tree: app_commands.CommandTree,
                  database: Path, public_url: str, port: int = 8769,
-                 delivery_retention_hours: int = 24):
+                 delivery_retention_hours: int = 24, read_recheck_seconds: float = 5):
         if not all((client.intents.guilds, client.intents.guild_messages, client.intents.message_content)):
             raise ValueError("Configure relay intents before constructing the Discord client.")
         from urllib.parse import urlsplit
@@ -43,7 +43,7 @@ class RelayPlugin:
         self.public_url, self.port = public_url.rstrip("/"), port
         self.store = Store(database, delivery_retention_hours=delivery_retention_hours)
         self.adapter = DiscordAdapter(client)
-        self.service = RelayService(self.store, self.adapter)
+        self.service = RelayService(self.store, self.adapter, read_recheck_seconds=read_recheck_seconds)
         self.runner = None
         self.closed = False
         self._commands = []
@@ -63,7 +63,7 @@ class RelayPlugin:
                 raise RelayError(409, "already_registered", "已有帳號，請用 /dcgp 取得登入指令，或 /relay-account reset 重設密碼。")
             view = RegistrationView(interaction.user.id, interaction.guild_id, create_account)
             await interaction.response.send_message(
-                privacy_notice(self.store.delivery_retention_hours) + "\n\n閱讀後按下方按鈕建立帳號；此選單五分鐘後失效。",
+                privacy_notice(self.store.delivery_retention_hours, self.service.read_recheck_seconds) + "\n\n閱讀後按下方按鈕建立帳號；此選單五分鐘後失效。",
                 view=view, ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
         async def create_account(interaction):
@@ -135,7 +135,7 @@ class RelayPlugin:
             await interaction.followup.send(
                 f"已開放 <#{channel_id}> 的 CLI 存取。請告知成員此頻道使用 GuildPort；"
                 "只有具原始權限的已註冊成員可使用。\n\n"
-                + privacy_notice(self.store.delivery_retention_hours),
+                + privacy_notice(self.store.delivery_retention_hours, self.service.read_recheck_seconds),
                 ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
         @admin.command(name="disable", description="停止此頻道的 CLI 存取")
@@ -174,6 +174,7 @@ class RelayPlugin:
         if self.runner:
             await self.runner.cleanup()
             self.runner = None
+        await self.adapter.close()
         self.store.close()
         for name in self._commands:
             self.tree.remove_command(name)
