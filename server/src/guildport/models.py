@@ -21,6 +21,8 @@ class Access:
     slowmode: int = 0
     target: Any = None
     send_block_reason: str | None = None
+    can_embed: bool = False
+    avatar_url: str | None = None
 
 
 class Adapter(Protocol):

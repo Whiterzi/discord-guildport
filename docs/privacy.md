@@ -15,6 +15,7 @@ GuildPort is **not end-to-end encrypted and does not anonymize users**. The rela
 | Enabled guild/channel IDs and enabling administrator | Stored until the channel is disabled |
 | Send metadata | User/channel/request IDs, keyed HMAC content fingerprint, timestamp and resulting Discord message ID; no message body. Retained for 24 hours by default, then removed at the next cleanup (normally every five minutes while running, also at startup/login) |
 | Received/history message bodies | Fetched on demand or held in bounded memory queues for connected clients; not written to the server database |
+| Sender display name and avatar URL | Read from the Discord member for attribution; small avatar displayed in outgoing Discord cards when permissions allow, not stored in the relay database |
 | CLI history output | Printed to the user's terminal; their terminal, shell piping or logging may retain it |
 
 Account deletion cascades to sessions and send metadata. It does **not** delete messages already posted to Discord or copies saved by recipients. Operators must explain these limits and handle applicable deletion requests separately.
@@ -26,6 +27,8 @@ Content fingerprints use HMAC-SHA-256 over the SHA-256 hex representation of the
 The CLI saves a bearer token in a local session file. POSIX permissions are 0600 for the file and 0700 for its directory; the file and server SQLite database are not application-encrypted. Use OS/disk encryption and protect backups. Never commit either file.
 
 `/dcgp` returns private, copyable commands with the relay URL and the caller's username. It never puts a password or token into a command. The password is entered at a hidden CLI prompt. A username still identifies the Discord account and may remain in shell history; terminal output can retain messages. Do not share session files or paste credentials into scripts.
+
+Full-screen chat keeps at most 500 messages in process memory and uses the terminal's alternate screen. It does not create a local message archive. Returning from chat restores the previous terminal screen; this is not a secure erase guarantee for terminal recordings, OS memory or other copies.
 
 The plugin disables its HTTP access log, and its request/command error logs contain exception types rather than exception text or payload-bearing tracebacks. This does **not** control logging by the host bot, Discord library, reverse proxy, OS or terminal. Operators must configure those separately. The plugin serializes live message bodies only for enabled channels with connected listeners; enabling Message Content intent still allows the host bot to receive other bot-visible guild messages through Discord's Gateway.
 

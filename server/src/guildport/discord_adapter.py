@@ -9,12 +9,39 @@ import discord
 from .models import Access, RelayError
 
 
-def message_data(message: discord.Message) -> dict:
-    return {"id": str(message.id), "channel_id": str(message.channel.id),
+def message_data(message: discord.Message, relay_bot_id: int | None = None) -> dict:
+    result = {"id": str(message.id), "channel_id": str(message.channel.id),
             "author": {"id": str(message.author.id), "name": message.author.display_name,
                        "bot": message.author.bot},
             "content": message.content, "created_at": message.created_at.isoformat(),
             "attachments": [{"name": a.filename, "url": a.url} for a in message.attachments]}
+    # Only our own bot's messages can supply relay attribution. Other bots/users
+    # can copy text or embed fields, so a marker alone is never proof of identity.
+    own_message = message.author.id == relay_bot_id and not getattr(message, "webhook_id", None)
+    if own_message:
+        for embed in message.embeds:
+            match = re.fullmatch(r"via GuildPort · ([1-9][0-9]{0,19})", embed.footer.text or "")
+            if match and embed.author.name and embed.description is not None:
+                result["relay_author"] = {"id": match[1], "name": embed.author.name}
+                result["relay_content"] = embed.description
+                # Keep alpha.1 clients readable too: they do not know relay_author.
+                name = discord.utils.escape_markdown(embed.author.name)
+                result["content"] = f"**{name} · via GuildPort** (`{match[1]}`)\n{embed.description}"
+                return result
+        legacy = re.match(r"^\*\*(.+) · via GuildPort\*\* \(`([1-9][0-9]{0,19})`\)\n", message.content)
+        if legacy:
+            result["relay_author"] = {"id": legacy[2], "name": re.sub(r"\\([\\*_~`])", r"\1", legacy[1])}
+            result["relay_content"] = message.content[legacy.end():]
+            return result
+    # Embed-only messages used to appear as empty entries in the terminal.
+    if not result["content"] and message.embeds:
+        parts = []
+        for embed in message.embeds[:10]:
+            parts.extend(str(value) for value in (embed.author.name, embed.title, embed.description, embed.url) if value)
+            for field in embed.fields[:25]:
+                parts.append(f"{field.name}: {field.value}")
+        result["content"] = "\n".join(parts)[:12000] or "[Embedded media]"
+    return result
 
 
 async def discord_call(coro):
@@ -79,17 +106,26 @@ class DiscordAdapter:
             if len(messages) >= 101:
                 raise RelayError(429, "slowmode_unverified", "Cannot safely verify the channel's slowmode window. Try later or use Discord.")
         return Access(guild_id, guild.name, channel_id, channel.name, user.display_name,
-                      bool(can_send), 0 if bypass else channel.slowmode_delay, channel, reason)
+                      bool(can_send), 0 if bypass else channel.slowmode_delay, channel, reason,
+                      can_embed=bool(up.embed_links and bp.embed_links),
+                      avatar_url=str(user.display_avatar.replace(size=64).url))
 
     async def history(self, access: Access, limit: int, before: str | None) -> list[dict]:
         async def fetch():
-            messages = [message_data(m) async for m in access.target.history(
+            messages = [message_data(m, self.client.user.id) async for m in access.target.history(
                 limit=limit, before=discord.Object(id=int(before)) if before else None)]
             return list(reversed(messages))
         return await discord_call(fetch())
 
     async def send(self, access: Access, user_id: str, content: str) -> dict:
         name = re.sub(r"[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]", "", access.display_name)[:40]
+        if access.can_embed:
+            embed = discord.Embed(description=content, colour=0x9B8AFB)
+            embed.set_author(name=name or "GuildPort user", icon_url=access.avatar_url)
+            embed.set_footer(text=f"via GuildPort · {user_id}")
+            message = await discord_call(access.target.send(
+                embed=embed, allowed_mentions=discord.AllowedMentions.none()))
+            return {"id": str(message.id)}
         name = discord.utils.escape_markdown(name)
         message = await discord_call(access.target.send(
             f"**{name} · via GuildPort** (`{user_id}`)\n{content}",

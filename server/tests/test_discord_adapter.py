@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import discord
 from discord import app_commands
 
-from guildport.discord_adapter import DiscordAdapter
+from guildport.discord_adapter import DiscordAdapter, message_data
 from guildport.models import RelayError
 from guildport.plugin import RelayPlugin, configure_intents
 
@@ -129,6 +129,63 @@ class DiscordAdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(kwargs["allowed_mentions"].users)
         self.assertFalse(kwargs["allowed_mentions"].roles)
         self.assertTrue(kwargs["suppress_embeds"])
+
+    async def test_avatar_card_requires_both_user_and_bot_embed_permission(self):
+        original=discord.TextChannel.permissions_for
+        for user_allowed, bot_allowed in ((True,True),(False,True),(True,False)):
+            def permissions(channel, member):
+                result=original(channel,member)
+                result.embed_links=user_allowed if member.id==300 else bot_allowed
+                return result
+            with patch.object(discord.TextChannel,"permissions_for",permissions):
+                access=await self.adapter.authorize("300","100","200")
+            self.assertEqual(access.can_embed,user_allowed and bot_allowed)
+            sender=AsyncMock(return_value=SimpleNamespace(id=900))
+            with patch.object(discord.TextChannel,"send",sender):
+                await self.adapter.send(access,"300","@everyone hello")
+            args,kwargs=sender.call_args
+            self.assertFalse(kwargs["allowed_mentions"].everyone)
+            if access.can_embed:
+                self.assertEqual(args,())
+                embed=kwargs["embed"]
+                self.assertEqual(embed.description,"@everyone hello")
+                self.assertEqual(embed.author.name,self.user.display_name)
+                self.assertEqual(embed.author.icon_url,str(self.user.display_avatar.replace(size=64).url))
+                self.assertEqual(embed.footer.text,"via GuildPort · 300")
+                self.assertNotIn("suppress_embeds",kwargs)
+            else:
+                self.assertNotIn("embed",kwargs)
+                self.assertIn("via GuildPort",args[0])
+
+    def message(self, author=400, content="", embeds=None, webhook_id=None):
+        return SimpleNamespace(id=900,channel=SimpleNamespace(id=200),
+            author=SimpleNamespace(id=author,display_name="Bot",bot=True),content=content,
+            embeds=embeds or [],attachments=[],created_at=datetime.now(timezone.utc),webhook_id=webhook_id)
+
+    def test_relay_card_round_trip_and_forged_attribution_is_rejected(self):
+        embed=discord.Embed(description="hello from CLI")
+        embed.set_author(name="Alice",icon_url="https://cdn.discordapp.com/example.png")
+        embed.set_footer(text="via GuildPort · 300")
+        result=message_data(self.message(embeds=[embed]),400)
+        self.assertEqual(result["relay_author"],{"id":"300","name":"Alice"})
+        self.assertEqual(result["relay_content"],"hello from CLI")
+        self.assertIn("Alice · via GuildPort",result["content"])
+        self.assertTrue(result["content"].endswith("hello from CLI"))
+        self.assertEqual(result["author"]["id"],"400")
+        for message in (self.message(author=401,embeds=[embed]),self.message(embeds=[embed],webhook_id=99)):
+            self.assertNotIn("relay_author",message_data(message,400))
+
+    def test_legacy_relay_attribution_and_embed_only_text(self):
+        content="**Alice · via GuildPort** (`300`)\nhello"
+        own=message_data(self.message(content=content),400)
+        self.assertEqual(own["relay_author"]["name"],"Alice")
+        self.assertEqual(own["relay_content"],"hello")
+        self.assertEqual(own["content"],content)
+        self.assertNotIn("relay_author",message_data(self.message(author=401,content=content),400))
+        embed=discord.Embed(title="Summary",description="Readable content")
+        data=message_data(self.message(author=401,embeds=[embed]),400)
+        self.assertIn("Summary",data["content"])
+        self.assertIn("Readable content",data["content"])
 
 
 class PluginTests(unittest.IsolatedAsyncioTestCase):

@@ -1,5 +1,6 @@
 """Offline loopback demo: no Discord token, no access to real Discord messages."""
 import asyncio
+import argparse
 from datetime import datetime, timezone
 import json
 from pathlib import Path
@@ -37,6 +38,9 @@ class DemoAdapter:
 
 
 async def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--seed", action="store_true", help="Include synthetic history for terminal UI testing")
+    options = parser.parse_args()
     root = Path(__file__).resolve().parents[1] / "tmp"
     root.mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory(dir=root, prefix="demo-") as directory:
@@ -45,6 +49,12 @@ async def main():
         username = store.register("300", hash_password(password))
         store.enable("100", "200", "300")
         adapter = DemoAdapter()
+        if options.seed:
+            adapter.messages = [{"id":str(1000+i),"channel_id":"200",
+                "author":{"id":"301" if i%2 else "300","name":"Alice" if i%2 else "小睦","bot":False},
+                "content":f"Demo message {i+1} · 中文與 emoji 🌿\n" + (
+                    "**Today’s update**: full-screen chat is ready.\n[Project](<https://github.com/Whiterzi/discord-guildport>)" if i==119 else "Use Page Up to explore older messages."),
+                "created_at":f"2026-10-01T06:{i//60:02d}:{i%60:02d}+00:00","attachments":[]} for i in range(120)]
         service = RelayService(store, adapter)
         adapter.hub = service.hub
         runner = web.AppRunner(service.application(), access_log=None, shutdown_timeout=1)

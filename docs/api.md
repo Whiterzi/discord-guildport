@@ -16,6 +16,8 @@ Requests use JSON and Discord snowflakes as **strings**. All endpoints except `G
 
 Message objects include `id`, `channel_id`, `author:{id,name,bot}`, `content`, `created_at` (ISO 8601) and `attachments:[{name,url}]`. Account registration and password reset are available only through authenticated Discord interactions, not arbitrary HTTP user IDs.
 
+Messages sent by this relay bot may also include `relay_author:{id,name}` and `relay_content` (the message without the attribution prefix). These optional fields are derived only from the relay's own non-webhook messages, including its older text format. The original bot remains in `author`; clients can display the attributed user with a `via GuildPort` badge. Clients must not infer trusted authorship from message text or arbitrary embeds. `content` retains a legacy attribution prefix, including for new cards, so alpha.1 clients still see the sender and body. Other embed-only messages expose a bounded text summary instead of an empty entry.
+
 Errors have `{error:{code,message}}`. 401 means login/session failure, 403 inaccessible resource, 409 conflicting/uncertain request, 429 throttling/slowmode, and 503 temporarily unverifiable Discord access. Resource existence is not disclosed through privileged error detail.
 
 SSE first emits `event: ready`. Fetch recent history after that event and deduplicate message IDs to close the subscribe/history gap. `event: relay` contains `type: message.created` with a message, or `message.updated`/`message.deleted` with a message ID. `resync_required` requires reconnect/history refresh. `event: revoked` closes a stream after permissions/session checks fail. Heartbeats are comments; there is no durable event replay or Last-Event-ID support.

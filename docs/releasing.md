@@ -9,4 +9,6 @@ Repository: `Whiterzi/discord-guildport`. npm package: `discord-guildport`. Exec
 5. Authenticate as the npm package owner using `npm login`, with any required browser/2FA flow. Review the package name and version. Publish the tested alpha with `npm publish --access public --tag alpha` from `cli`. A dry run or tarball build does not publish it.
 6. Verify `npm view discord-guildport@alpha version` and install the registry version in a clean directory. Update README status after successful publication.
 
+The full-screen CLI is version `0.1.0-alpha.2`; its source version does not imply that it has already been published. `/dcgp` uses the npm `alpha` dist-tag, so it begins serving the new CLI after the maintainer publishes that tag. The server remains compatible with CLI alpha.1. Do not point generated commands at an unpublished exact version.
+
 Do not commit `.npmrc`, registry tokens, deployment keys, `.env`, local sessions, runtime databases, logs or actual deployment domains. Configure trusted publishing separately if CI releases are desired; CI currently validates builds only and has no publishing credentials.

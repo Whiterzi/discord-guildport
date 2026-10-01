@@ -8,6 +8,15 @@ type Chat = (api: Api, channel: string, title: string, readOnly: boolean) => Pro
 type Guild = { id: string; name: string };
 type Channel = { id: string; name: string; can_send: boolean; slowmode_seconds: number; send_block_reason?: string | null };
 
+async function choose(options: Parameters<typeof select<string>>[0], back: string): Promise<string> {
+  const abort=new AbortController();
+  const escape=(_text: string, key: {name?:string})=>{if(key?.name==='escape') abort.abort();};
+  process.stdin.on('keypress',escape);
+  try { return await select(options,{signal:abort.signal}); }
+  catch(error) { if(abort.signal.aborted) return back; throw error; }
+  finally { process.stdin.off('keypress',escape); }
+}
+
 export async function interactiveLogin(): Promise<Session> {
   const server = serverUrl(await input({ message: 'Relay server URL:', validate: value => {
     try { serverUrl(value); return true; } catch { return 'Enter an HTTPS origin (or HTTP loopback for local development).'; }
@@ -25,23 +34,23 @@ export async function browse(api: Api, chat: Chat): Promise<void> {
   while (true) {
     process.stdout.write('Loading shared servers…\n');
     const { guilds } = await api.request<{ guilds: Guild[] }>('/v1/guilds');
-    const guildId = await select({ message: 'Select a server', choices: [
+    const guildId = await choose({ message: 'Select a server · Esc: main menu', choices: [
       ...guilds.map(g => ({ name: safeText(g.name).replace(/\n/g, ' '), value: g.id, description: g.id })),
       { name: '↻ Refresh servers', value: 'refresh' }, { name: '← Main menu', value: 'back' }
-    ] });
+    ] }, 'back');
     if (guildId === 'back') return;
     if (guildId === 'refresh') continue;
     const guild = guilds.find(g => g.id === guildId)!;
     while (true) {
       const { channels } = await api.request<{ channels: Channel[] }>(`/v1/guilds/${guildId}/channels`);
-      const channelId = await select({ message: `${safeText(guild.name)} — select a channel`, choices: [
+      const channelId = await choose({ message: `${safeText(guild.name)} — select a channel · Esc: servers`, choices: [
         ...channels.map(c => ({
           name: `#${safeText(c.name)}${c.can_send ? '' : ' [read only]'}`,
           value: c.id,
           description: c.can_send ? `${c.id}${c.slowmode_seconds ? ` · slowmode ${c.slowmode_seconds}s` : ''}` : (c.send_block_reason ?? 'Sending is unavailable.')
         })),
         { name: '↻ Refresh channels', value: 'refresh' }, { name: '← Servers', value: 'back' }
-      ] });
+      ] }, 'back');
       if (channelId === 'back') break;
       if (channelId === 'refresh') continue;
       const channel = channels.find(c => c.id === channelId)!;
@@ -57,9 +66,9 @@ export async function interactive(chat: Chat): Promise<void> {
   try { session = await loadSession(); } catch { /* Offer login below. */ }
   while (true) {
     if (!session) {
-      const action = await select({ message: 'Welcome', choices: [
+      const action = await choose({ message: 'Welcome · Esc: exit', choices: [
         { name: 'Log in to a relay', value: 'login' }, { name: 'Exit', value: 'exit' }
-      ] });
+      ] }, 'exit');
       if (action === 'exit') return;
       try { session = await interactiveLogin(); }
       catch (error) {
@@ -69,12 +78,12 @@ export async function interactive(chat: Chat): Promise<void> {
       }
     }
     const api = Api.session(session);
-    const action = await select({ message: `GuildPort · ${safeText(session.user.username)}`, choices: [
+    const action = await choose({ message: `GuildPort · ${safeText(session.user.username)} · Esc: exit`, choices: [
       { name: 'Browse servers and channels', value: 'browse' },
       { name: 'Account details', value: 'account' },
       { name: 'Log out', value: 'logout' },
       { name: 'Exit', value: 'exit' }
-    ] });
+    ] }, 'exit');
     try {
       if (action === 'exit') return;
       if (action === 'browse') await browse(api, chat);

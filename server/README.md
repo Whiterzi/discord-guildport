@@ -11,7 +11,7 @@ Run `dcgp`, pick a server and channel with the arrow keys, and chat. GuildPort u
 - `/register` shows a privacy notice and creates an account after the invoking user agrees; credentials are returned ephemerally.
 - `/dcgp` privately generates copyable login/menu commands using the published CLI, with the relay URL and username prefilled. Passwords and tokens never appear in these commands.
 - `dcgp` opens an interactive login/menu. Use ↑/↓ and Enter to choose a shared server and an enabled channel.
-- Chat receives live messages while preserving your current input. `/back` returns to the channel picker.
+- Full-screen chat keeps the channel/status header and composer fixed. Page Up / Page Down scroll; Esc returns to the picker; End jumps to the latest messages. New messages preserve your draft and reading position.
 - Scriptable commands provide listing, history, sending and newline-delimited event output.
 - Only administrator-enabled, non-age-restricted, ordinary text channels are supported.
 - Every read/send/subscription checks the member, bot and channel permissions. Removing a member, revoking a session or disabling a channel stops access.
@@ -59,11 +59,11 @@ To install the CLI from this checkout:
 ```sh
 cd cli
 npm pack
-npm install --global ./discord-guildport-0.1.0-alpha.1.tgz
+npm install --global ./discord-guildport-0.1.0-alpha.2.tgz
 dcgp
 ```
 
-The CLI is available on npm: `npm install --global discord-guildport@alpha`. Alternatively, use `/dcgp` in Discord for pinned `npx` commands without a global installation. The current server changes remain compatible with CLI `0.1.0-alpha.1`; pushing this repository does not publish a new npm version.
+The CLI is available on npm: `npm install --global discord-guildport@alpha`. Alternatively, use `/dcgp` in Discord for `npx` commands following the npm `alpha` tag without a global installation. This checkout prepares CLI `0.1.0-alpha.2` with full-screen chat. Until its maintainer publishes it, npm may still serve alpha.1; install the local tarball to try the new UI immediately. The server remains compatible with alpha.1. Pushing this repository does not publish a new npm version.
 
 ## Discord setup
 
@@ -98,11 +98,27 @@ Login prompts for the password without echoing it. Automation can use `--passwor
 
 `logout` revokes the server token before removing the local file. If the server is unreachable, it keeps the file so revocation can be retried. `logout --local-only` only removes the local file; revoke the session through Discord when possible.
 
+## Chat controls
+
+| Key | Action |
+| --- | --- |
+| Enter | Send the draft |
+| Esc | Return one level: chat → channels → servers → main menu → exit |
+| Page Up / Page Down, ↑ / ↓ | Scroll a page or a line; Page Up at the top loads older history |
+| End | Follow the latest messages and clear the new-message count |
+| Home | Go to the oldest loaded message |
+| ← / →, Ctrl+A / Ctrl+E | Move the draft cursor |
+| Ctrl+J | Insert a line break; bracketed multiline paste stays in the draft until Enter |
+| Ctrl+U | Clear the draft |
+| F2 | Toggle message IDs |
+
+The header shows connection/read-only state. Times use the local time zone, dates separate days, and the body renders basic Markdown as readable text. Spoilers are hidden as `[spoiler]`; terminal controls are stripped. The view retains up to 500 messages in memory. No local chat history is written. `history --json` and `watch --json` retain structured output; use `history --details` for visible IDs. A terminal supporting ANSI alternate-screen and bracketed paste is required for full-screen chat. The generic `watch` command remains available for plain streaming output.
+
 ## Current boundaries
 
 - No DMs, threads, forum channels, voice, age-restricted channels, attachment uploads or message editing commands. Incoming attachments are displayed as links; edits/deletes produce event notices.
 - Guilds only appear when the user has access to at least one enabled channel. GuildPort does not enumerate every server a user has joined.
-- Text is sent by the bot as `name · via GuildPort (Discord ID)`. Mentions and link embeds are suppressed. This is not a Discord account client.
+- Messages are sent by the bot in a card with the member’s small avatar/name and a `via GuildPort · Discord ID` footer when both member and bot have Embed Links permission. Otherwise the relay uses its attributed plain-text format. Mentions are suppressed; no webhook or Discord user token is used.
 - Bot-visible permissions cannot prove email/phone verification. In a server with verification enabled, sending is conservatively read-only unless Discord reports an explicit member verification exemption or administrator status. The channel list explains this restriction. Do not weaken a server's verification requirements for this tool.
 - Slowmode covers relay sends and recent native Discord sends. If a busy channel's slowmode window cannot be fully checked within 101 messages, sending is refused.
 - This is not a complete replacement for Discord's client-side blocking, AutoMod or third-party moderation behavior. Operators must assess those differences before enabling a channel; bot messages may be treated differently by moderation systems.

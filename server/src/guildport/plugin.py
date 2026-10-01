@@ -183,7 +183,7 @@ class RelayPlugin:
                 and str(message.channel.id) in self.service.hub.listeners
                 and self.store.channel(str(message.channel.id)) is not None):
             self.service.hub.publish(message.channel.id,
-                {"type": "message.created", "message": message_data(message)})
+                {"type": "message.created", "message": message_data(message, self.client.user.id if self.client.user else None)})
 
     async def on_raw_message_edit(self, event):
         if not self.closed:

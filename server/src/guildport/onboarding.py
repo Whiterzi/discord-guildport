@@ -9,7 +9,7 @@ import discord
 from .models import RelayError
 
 LOG = logging.getLogger(__name__)
-CLI_PACKAGE = "discord-guildport@0.1.0-alpha.1"
+CLI_PACKAGE = "discord-guildport@alpha"
 
 
 def privacy_notice(retention_hours: int) -> str:
@@ -34,7 +34,7 @@ def quick_start(public_url: str, username: str) -> str:
     browse = f"npx --yes --package={CLI_PACKAGE} dcgp"
     return (
         "**貼上即可使用（Node.js 22.13+；macOS／Linux／PowerShell）**\n"
-        "第一次執行會從 npm 下載指定版本。先貼上登入指令，再於提示時輸入 GuildPort 密碼：\n"
+        "執行時會從 npm 取得 alpha 版本。先貼上登入指令，再於提示時輸入 GuildPort 密碼：\n"
         f"```sh\n{login}\n```\n"
         "登入成功後貼上這行，用 ↑／↓ 與 Enter 選伺服器、頻道：\n"
         f"```sh\n{browse}\n```\n"

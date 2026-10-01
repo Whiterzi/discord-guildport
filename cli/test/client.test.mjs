@@ -102,6 +102,21 @@ test('session file is private, persisted, and removable', async t => {
   await assert.rejects(loadSession(), /login/);
 });
 
+test('aborting an idle SSE reader returns promptly even after a buffered event', {timeout:3000}, async t=>{
+  const origin=await fixture(t, (_request,response)=>{
+    response.writeHead(200,{'Content-Type':'text/event-stream'});
+    response.write('event: ready\ndata: {}\n\nevent: relay\ndata: {"type":"message.created"}\n\n');
+  });
+  const controller=new AbortController();
+  const events=new Api(origin,'test-token').events('200',controller.signal);
+  await events.next();
+  await events.next();
+  const idle=events.next();
+  controller.abort();
+  await idle.catch(error=>assert.equal(error.name,'AbortError'));
+  await events.return();
+});
+
 test('CLI login, listing, send and logout run end-to-end against Python relay', { timeout: 30_000 }, async t => {
   await mkdir(join(root, 'tmp'), { recursive: true });
   const config = await mkdtemp(join(root, 'tmp', 'cli-e2e-'));

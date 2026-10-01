@@ -1,6 +1,6 @@
 {
   "name": "discord-guildport",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.2",
   "description": "A terminal client for permission-checked GuildPort Discord relays",
   "type": "module",
   "license": "MIT",
@@ -32,10 +32,13 @@
   ],
   "dependencies": {
     "@inquirer/prompts": "^8.7.2",
-    "commander": "^15.0.0"
+    "commander": "^15.0.0",
+    "string-width": "^8.3.0",
+    "wrap-ansi": "^10.0.2"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@xterm/headless": "^6.0.0",
     "typescript": "^5.9.0"
   },
   "repository": {

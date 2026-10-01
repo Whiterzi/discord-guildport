@@ -120,13 +120,13 @@ class OnboardingTests(unittest.IsolatedAsyncioTestCase):
             serialize.assert_not_called()
             self.plugin.store.enable("100", "200", "300")
             await self.plugin.on_message(message)
-            serialize.assert_called_once_with(message)
+            serialize.assert_called_once_with(message, None)
 
     def test_quick_command_uses_published_cli_and_no_shell_secret(self):
         text = quick_start("https://relay.example.com", "gp_300")
         command = text.split("```sh\n")[1].split("\n```")[0]
         args = shlex.split(command)
-        self.assertEqual(args, ["npx", "--yes", "--package=discord-guildport@0.1.0-alpha.1",
+        self.assertEqual(args, ["npx", "--yes", "--package=discord-guildport@alpha",
             "dcgp", "login", "--server", "https://relay.example.com", "--username", "gp_300"])
 
     def test_url_cannot_inject_shell_or_discord_formatting(self):

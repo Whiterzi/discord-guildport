@@ -8,6 +8,8 @@ export interface Message {
   id: string;
   channel_id: string;
   author: { id: string; name: string; bot: boolean };
+  relay_author?: { id: string; name: string };
+  relay_content?: string;
   content: string;
   created_at: string;
   attachments: { name: string; url: string }[];
@@ -37,10 +39,11 @@ export class Api {
     return response;
   }
 
-  async request<T>(path: string, data?: unknown): Promise<T> {
+  async request<T>(path: string, data?: unknown, signal?: AbortSignal): Promise<T> {
+    const timeout = AbortSignal.timeout(30_000);
     const response = await this.response(path, data === undefined ? {} : {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data)
-    });
+    }, signal ? AbortSignal.any([signal, timeout]) : timeout);
     return await response.json() as T;
   }
 
@@ -52,10 +55,15 @@ export class Api {
     }
     if (!response.body) throw new Error('Missing event stream.');
     const reader = response.body.getReader();
+    // Explicitly wake a pending read too. Cancelling fetch alone can leave a
+    // buffered SSE reader waiting until the proxy's next heartbeat on exit.
+    const cancel = () => { void reader.cancel().catch(() => {}); };
+    signal.addEventListener('abort', cancel, { once: true });
+    if (signal.aborted) cancel();
     const decoder = new TextDecoder();
     let buffer = '';
     try {
-      while (true) {
+      while (!signal.aborted) {
         // Abort a stalled proxy even if the TCP connection remains open.
         const timer = setTimeout(() => { void reader.cancel(); }, 45_000);
         let part: ReadableStreamReadResult<Uint8Array>;
@@ -76,7 +84,11 @@ export class Api {
           if (data.length) yield { event, data: JSON.parse(data.join('\n')) };
         }
       }
-    } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
+    } finally {
+      signal.removeEventListener('abort', cancel);
+      await reader.cancel().catch(() => {});
+      reader.releaseLock();
+    }
   }
 }
 
