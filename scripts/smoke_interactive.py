@@ -165,14 +165,14 @@ def main():
             assert child.returncode == 143
             assert termios.tcgetattr(master)[3] & termios.ICANON
             # External termination and revoked access must also restore the terminal.
-            for revoke in (False,True):
+            for mode in ('signal', 'keyboard', 'revoke'):
                 output.clear()
                 slave=os.open(slave_name,os.O_RDWR)
                 child=subprocess.Popen([shutil.which('node'),cli,'chat','200'],cwd=ROOT,
                     stdin=slave,stdout=slave,stderr=slave,env=env)
                 os.close(slave); slave=None
                 expect('Connected')
-                if revoke:
+                if mode == 'revoke':
                     api('/v1/logout-all',{})
                     # Trigger an immediate per-event permission/session check.
                     fresh=urllib.request.Request(info['url']+'/v1/login',data=json.dumps({
@@ -180,11 +180,13 @@ def main():
                     with urllib.request.urlopen(fresh,timeout=5) as response:
                         session['token']=json.load(response)['token']
                     api('/v1/channels/200/messages',{'content':'Revocation probe','request_id':str(uuid.uuid4())})
+                elif mode == 'keyboard':
+                    keys(b'\x03')
                 else:
                     child.send_signal(signal.SIGTERM)
                 expect('\x1b[?1049l')
                 child.wait(timeout=3)
-                assert child.returncode == (1 if revoke else 143), child.returncode
+                assert child.returncode == {'revoke':1,'keyboard':130,'signal':143}[mode], child.returncode
                 assert termios.tcgetattr(master)[3] & termios.ICANON
             print("Interactive PTY smoke passed: full-screen menus, filtering, Shift+Enter, multiline paste, live messages, draft preservation, scroll, history pagination, resize, Esc navigation, revocation, signal exit, terminal restore.")
     finally:

@@ -106,7 +106,8 @@ export async function chat(api: Api, channel: string, title=channel, readOnly=fa
   };
   const input=new ChatInput(key=>{
     const height=Math.max(1,size().rows-8);
-    if (key==='exit' || key==='interrupt') close();
+    if (key==='interrupt') interrupt();
+    else if (key==='exit') close();
     else if (key==='up') scroll(-1);
     else if (key==='down') scroll(1);
     else if (key==='pageup') scroll(-height);

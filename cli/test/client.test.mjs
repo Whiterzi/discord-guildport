@@ -117,6 +117,34 @@ test('aborting an idle SSE reader returns promptly even after a buffered event',
   await events.return();
 });
 
+test('watch exits promptly when interrupted during its initial history request', {timeout:5000}, async t=>{
+  await mkdir(join(root,'tmp'),{recursive:true});
+  const config=await mkdtemp(join(root,'tmp','watch-interrupt-'));
+  t.after(()=>rm(config,{recursive:true,force:true}));
+  let historyStarted;
+  const waiting=new Promise(resolve=>historyStarted=resolve);
+  const origin=await fixture(t,(request,response)=>{
+    if(request.url.endsWith('/events')){
+      response.writeHead(200,{'Content-Type':'text/event-stream'});
+      response.write('event: ready\ndata: {}\n\n');
+    }else{
+      historyStarted(); // Keep history pending: an interrupt must cancel it.
+    }
+  });
+  const session={server:origin,token:'test-token',expires_at:Date.now()/1000+60,
+    user:{discord_id:'300',username:'gp_300'}};
+  const {writeFile}=await import('node:fs/promises');
+  await writeFile(join(config,'session.json'),JSON.stringify(session),{mode:0o600});
+  const child=spawn(process.execPath,[binary,'watch','200'],{
+    env:{...process.env,GUILDPORT_CONFIG_DIR:config},stdio:['ignore','pipe','pipe']});
+  t.after(()=>{if(child.exitCode===null)child.kill('SIGKILL');});
+  const stopped=once(child,'close');
+  await waiting;
+  child.kill('SIGTERM');
+  const [code]=await stopped;
+  assert.equal(code,0);
+});
+
 test('CLI login, listing, send and logout run end-to-end against Python relay', { timeout: 30_000 }, async t => {
   await mkdir(join(root, 'tmp'), { recursive: true });
   const config = await mkdtemp(join(root, 'tmp', 'cli-e2e-'));

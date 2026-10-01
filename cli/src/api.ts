@@ -65,7 +65,7 @@ export class Api {
     try {
       while (!signal.aborted) {
         // Abort a stalled proxy even if the TCP connection remains open.
-        const timer = setTimeout(() => { void reader.cancel(); }, 45_000);
+        const timer = setTimeout(cancel, 45_000);
         let part: ReadableStreamReadResult<Uint8Array>;
         try { part = await reader.read(); } finally { clearTimeout(timer); }
         if (part.done) break;

@@ -4,7 +4,7 @@ An interactive terminal client for Discord communities, served through a bot you
 
 Run `dcgp`, pick a server and channel with the arrow keys, and chat. GuildPort uses its own accounts and device sessions. Discord messages are sent by the bot with explicit sender attribution; GuildPort never asks for a Discord user password or user token.
 
-**Status: experimental alpha.** The HTTP API, CLI, and Discord adapter have automated tests, including a CLI-to-Python integration test. The CLI is published to npm; each relay deployment still requires its own live Discord validation. This project is not affiliated with or approved by Discord.
+**CLI release: 0.1.0, npm channel `latest`.** The Python relay remains a prerelease for small deployments. Automated checks cover the API, Discord adapter, CLI integration and terminal interaction; each relay deployment still requires its own live Discord validation. This project is not affiliated with or approved by Discord.
 
 ## What it does
 
@@ -59,11 +59,11 @@ To install the CLI from this checkout:
 ```sh
 cd cli
 npm pack
-npm install --global ./discord-guildport-0.1.0-alpha.3.tgz
+npm install --global ./discord-guildport-0.1.0.tgz
 dcgp
 ```
 
-The CLI is available on npm: `npm install --global discord-guildport@alpha`. Alternatively, use `/dcgp` in Discord for `npx` commands following the npm `alpha` tag without a global installation. This checkout prepares CLI `0.1.0-alpha.3` with searchable full-screen menus and Shift+Enter support. Until its maintainer publishes it, npm may still serve alpha.2; install the local tarball to try the new UI immediately. The server remains compatible with alpha.1. Pushing this repository does not publish a new npm version.
+The stable CLI release command is `npm install --global discord-guildport@latest`, or `npx --yes --package=discord-guildport@latest dcgp` without a global installation. This checkout prepares CLI `0.1.0`; the registry changes only after its maintainer publishes it. Existing sessions remain usable. Relay server 0.1.0a5 or newer is recommended for the permission-query latency fix. Existing deployments may still generate `@alpha` commands through `/dcgp`; switch those to `@latest` only after verifying the stable package is published. Pushing this repository does not publish npm packages.
 
 ## Discord setup
 
@@ -103,6 +103,7 @@ Login prompts for the password without echoing it. Automation can use `--passwor
 | Key | Action |
 | --- | --- |
 | Enter | Send the draft |
+| Ctrl+C | Exit the CLI and restore the terminal |
 | Esc | Return one level: chat → channels → servers → main menu → exit |
 | Page Up / Page Down, ↑ / ↓ | Scroll a page or a line; Page Up at the top loads older history |
 | End | Follow the latest messages and clear the new-message count |
@@ -126,7 +127,7 @@ The header shows connection/read-only state. Times use the local time zone, date
 - Bot-visible permissions cannot prove email/phone verification. In a server with verification enabled, sending is conservatively read-only unless Discord reports an explicit member verification exemption or administrator status. The channel list explains this restriction. Do not weaken a server's verification requirements for this tool.
 - Slowmode covers relay sends and recent native Discord sends. If a busy channel's slowmode window cannot be fully checked within 101 messages, sending is refused.
 - This is not a complete replacement for Discord's client-side blocking, AutoMod or third-party moderation behavior. Operators must assess those differences before enabling a channel; bot messages may be treated differently by moderation systems.
-- Send/history operations use fresh REST permission checks. Live streams recheck Discord permissions every 5 seconds by default and pause delivery during revalidation; logout, channel-disable and Gateway readiness are checked before every batch. Discord permission revocation can therefore lag briefly. Set `GUILDPORT_READ_RECHECK_SECONDS=0` for fresh checks per batch. REST lookups run concurrently and share only requests still in flight. This alpha targets small deployments; API throttling can still make channels unavailable.
+- Send/history operations use fresh REST permission checks. Live streams recheck Discord permissions every 5 seconds by default and pause delivery during revalidation; logout, channel-disable and Gateway readiness are checked before every batch. Discord permission revocation can therefore lag briefly. Set `GUILDPORT_READ_RECHECK_SECONDS=0` for fresh checks per batch. REST lookups run concurrently and share only requests still in flight. The relay targets small deployments; API throttling can still make channels unavailable.
 - Live streams reconnect with bounded backoff and refresh the latest 100 messages. Longer offline gaps require explicit history pagination. Slow consumers are disconnected and asked to resync.
 - Messages are not end-to-end encrypted. The relay operator and any TLS-terminating proxy provider can process plaintext. Message bodies are not stored in the relay database. Send metadata uses keyed HMAC fingerprints and is removed after 24 hours by default (cleanup every five minutes while running). See [data handling](docs/privacy.md) for retention settings, backup limits and operator responsibilities.
 - Send requests have persisted idempotency IDs only within the configured retention window. An uncertain Discord delivery is never automatically replayed. Check history before sending again after a delivery error or an expired reservation.

@@ -2,6 +2,7 @@
 import { Command } from 'commander';
 import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
+import { createRequire } from 'node:module';
 import { createInterface } from 'node:readline/promises';
 import { Writable } from 'node:stream';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -71,7 +72,7 @@ async function watch(api: Api, channel: string, json: boolean, signal: AbortSign
     try {
       for await (const event of api.events(channel, signal)) {
         if (event.event === 'ready') {
-          const history = await api.request<{ messages: Message[] }>(`/v1/channels/${id(channel)}/messages?limit=100`);
+          const history = await api.request<{ messages: Message[] }>(`/v1/channels/${id(channel)}/messages?limit=100`, undefined, signal);
           for (const message of history.messages) show(message);
           if (failures) process.stderr.write('Reconnected; refreshed the latest 100 messages. Longer gaps may require dcgp history.\n');
           failures = 0;
@@ -97,7 +98,8 @@ async function watch(api: Api, channel: string, json: boolean, signal: AbortSign
   }
 }
 
-const program = new Command().name('dcgp').description('Chat through a GuildPort Discord relay.').version('0.1.0-alpha.3');
+const { version } = createRequire(import.meta.url)('../package.json') as { version: string };
+const program = new Command().name('dcgp').description('Chat through a GuildPort Discord relay.').version(version);
 program.action(async () => interactive(chat));
 program.command('browse').description('Select servers and channels with arrow keys.').action(async () => interactive(chat));
 
