@@ -1,0 +1,30 @@
+name: CI
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ['3.9', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: cli/package-lock.json
+      - run: python -m venv .venv
+      - run: .venv/bin/python -m pip install --upgrade pip
+      - run: .venv/bin/python -m pip install -e ./server build
+      - run: .venv/bin/python -m unittest discover -s server/tests -v
+      - run: npm ci --prefix cli
+      - run: npm test --prefix cli
+      - run: .venv/bin/python scripts/smoke_interactive.py
+      - run: .venv/bin/python -m build server
+      - run: npm pack --dry-run
+        working-directory: cli

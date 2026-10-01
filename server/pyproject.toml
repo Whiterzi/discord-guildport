@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "discord-guildport-server"
+version = "0.1.0a1"
+description = "Permission-checked Discord bot relay for the GuildPort CLI"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+dependencies = ["aiohttp>=3.12,<4", "discord.py>=2.6,<3", "argon2-cffi>=23.1,<26"]
+
+[project.scripts]
+guildport-server = "guildport.standalone:main"
+
+[project.urls]
+Repository = "https://github.com/Whiterzi/discord-guildport"
+Issues = "https://github.com/Whiterzi/discord-guildport/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
