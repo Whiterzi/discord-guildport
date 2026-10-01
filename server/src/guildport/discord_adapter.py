@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from copy import copy
 from datetime import datetime, timedelta, timezone
 import re
 
@@ -57,14 +58,14 @@ class DiscordAdapter:
     def __init__(self, client: discord.Client):
         self.client = client
         self.slots = asyncio.Semaphore(4)
-        self._snapshots = {}
+        self._requests = {}
 
     def ready(self):
         if not self.client.is_ready() or self.client.user is None:
             raise RelayError(503, "discord_unavailable", "Discord is reconnecting. Try again shortly.")
 
     async def close(self):
-        tasks = list(self._snapshots.values())
+        tasks = list(self._requests.values())
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
@@ -76,32 +77,44 @@ class DiscordAdapter:
         if not member.guild_permissions.manage_guild or member.pending or member.is_timed_out():
             raise RelayError(403, "admin_required", "Manage Server permission is required.")
 
-    async def _fetch_snapshot(self, user_id: str, guild_id: str):
+    async def _snapshot(self, user_id: str, guild_id: str, channel_id: str):
         async with self.slots:
             # This isolated Guild is only a REST lookup handle, never a permission
             # source. Fetch all four endpoints concurrently using discord.py's
             # shared HTTP client/rate limits, then bind results to the fresh roles.
             lookup = discord.Guild(state=self.client._connection, data={"id": guild_id, "roles": []})
-            guild, channels, user, bot = await discord_call(asyncio.gather(
-                self.client.fetch_guild(int(guild_id), with_counts=False),
-                lookup.fetch_channels(), lookup.fetch_member(int(user_id)),
-                lookup.fetch_member(self.client.user.id)))
-            for item in (*channels, user, bot):
+            # Listing every guild channel has a separate, tight Discord rate
+            # limit. The single-channel route supplies the same overwrites we
+            # need here, without that guild-wide list request on every check.
+            guild, channel, user, bot = await discord_call(asyncio.gather(
+                self._request(("guild", guild_id), lambda: self.client.fetch_guild(int(guild_id), with_counts=False)),
+                self._request(("channel", channel_id), lambda: self.client.fetch_channel(int(channel_id))),
+                self._request(("member", guild_id, user_id), lambda: lookup.fetch_member(int(user_id))),
+                self._request(("member", guild_id, str(self.client.user.id)), lambda: lookup.fetch_member(self.client.user.id))))
+            # Verify the actual channel's guild before attaching fresh roles.
+            # Never turn a wrong-guild channel or DM into an authorized target.
+            if (not isinstance(channel, discord.TextChannel) or channel.guild.id != guild.id
+                    or str(channel.id) != channel_id):
+                raise RelayError(403, "channel_unavailable", "Channel does not belong to the enabled guild.")
+            # Individual REST results may be shared by checks for other users or
+            # channels. Bind private copies so concurrent role snapshots cannot
+            # overwrite each other's permission context (or the Gateway cache).
+            channel, user, bot = copy(channel), copy(user), copy(bot)
+            for item in (channel, user, bot):
                 item.guild = guild
-            return guild, channels, user, bot
+            return guild, channel, user, bot
 
-    async def _snapshot(self, user_id: str, guild_id: str):
+    async def _request(self, key, fetch):
         # Share only requests still in flight. Completed permission results are
         # never cached: the next operation must verify Discord again.
-        key = (guild_id, user_id)
-        task = self._snapshots.get(key)
+        task = self._requests.get(key)
         if task is None or task.done():
-            task = asyncio.create_task(self._fetch_snapshot(user_id, guild_id))
-            self._snapshots[key] = task
+            task = asyncio.create_task(fetch())
+            self._requests[key] = task
 
             def finished(done):
-                if self._snapshots.get(key) is done:
-                    del self._snapshots[key]
+                if self._requests.get(key) is done:
+                    del self._requests[key]
                 if not done.cancelled():
                     done.exception()  # Also consume errors if every waiter disconnected.
 
@@ -110,9 +123,8 @@ class DiscordAdapter:
 
     async def authorize(self, user_id: str, guild_id: str, channel_id: str, *, for_send: bool = False) -> Access:
         self.ready()
-        guild, channels, user, bot = await self._snapshot(user_id, guild_id)
+        guild, channel, user, bot = await self._snapshot(user_id, guild_id, channel_id)
         self.ready()
-        channel = next((c for c in channels if str(c.id) == channel_id), None)
         if (not isinstance(channel, discord.TextChannel) or channel.type != discord.ChannelType.text
                 or channel.is_nsfw() or user.pending):
             raise RelayError(403, "channel_unavailable", "Only enabled, non-age-restricted text channels are supported.")

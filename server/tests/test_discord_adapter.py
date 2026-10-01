@@ -30,13 +30,15 @@ class DiscordAdapterTests(unittest.IsolatedAsyncioTestCase):
         self.client.fetch_guild = AsyncMock(return_value=self.guild)
         self.adapter = DiscordAdapter(self.client)
         self.fetch_members = AsyncMock(side_effect=lambda member_id: self.user if member_id == 300 else self.bot)
-        self.fetch_channels = AsyncMock(side_effect=lambda: [self.channel])
+        self.client.fetch_channel = AsyncMock(side_effect=lambda channel_id: self.channel)
         self.member_patch = patch.object(discord.Guild, "fetch_member", self.fetch_members)
+        self.fetch_channels = AsyncMock(side_effect=AssertionError("Permission checks must not enumerate all guild channels"))
         self.channel_patch = patch.object(discord.Guild, "fetch_channels", self.fetch_channels)
         self.member_patch.start()
         self.channel_patch.start()
 
     async def asyncTearDown(self):
+        await self.adapter.close()
         self.member_patch.stop()
         self.channel_patch.stop()
         await self.client.close()
@@ -66,7 +68,9 @@ class DiscordAdapterTests(unittest.IsolatedAsyncioTestCase):
             await self.adapter.authorize("300", "100", "200")
         self.assertEqual(self.client.fetch_guild.await_count, 2)
         self.assertEqual(self.fetch_members.await_count, 4)
-        self.assertEqual(self.fetch_channels.await_count, 2)
+        self.client.fetch_channel.assert_awaited_with(200)
+        self.assertEqual(self.client.fetch_channel.await_count, 2)
+        self.fetch_channels.assert_not_awaited()
 
     async def test_snapshot_requests_run_concurrently_and_only_share_in_flight(self):
         started = set()
@@ -81,12 +85,12 @@ class DiscordAdapterTests(unittest.IsolatedAsyncioTestCase):
 
         async def guild(*args, **kwargs):
             return await endpoint("guild", self.guild)
-        async def channels():
-            return await endpoint("channels", [self.channel])
+        async def channel(channel_id):
+            return await endpoint("channel", self.channel)
         async def member(member_id):
             return await endpoint(str(member_id), self.user if member_id == 300 else self.bot)
         self.client.fetch_guild.side_effect = guild
-        self.fetch_channels.side_effect = channels
+        self.client.fetch_channel.side_effect = channel
         self.fetch_members.side_effect = member
         first = asyncio.create_task(self.adapter.authorize("300", "100", "200"))
         second = asyncio.create_task(self.adapter.authorize("300", "100", "200"))
@@ -114,6 +118,78 @@ class DiscordAdapterTests(unittest.IsolatedAsyncioTestCase):
             self.channel = self.make_channel(**settings)
             with self.assertRaises(RelayError):
                 await self.adapter.authorize("300", "100", "200")
+
+    async def test_single_channel_fetch_rejects_wrong_guild_and_private_channels(self):
+        other = discord.Guild(state=self.state, data={"id": "101", "roles": []})
+        self.channel.guild = other
+        with self.assertRaises(RelayError):
+            await self.adapter.authorize("300", "100", "200")
+        self.assertIs(self.channel.guild, other)
+        self.client.fetch_channel.return_value = SimpleNamespace(id=200)
+        self.client.fetch_channel.side_effect = None
+        with self.assertRaises(RelayError):
+            await self.adapter.authorize("300", "100", "200")
+
+    async def test_fresh_roles_override_gateway_context_without_mutating_shared_objects(self):
+        fresh = discord.Guild(state=self.state, data={
+            "id": "100", "name": "Fresh", "owner_id": "999", "verification_level": 0,
+            "roles": [{"id": "100", "name": "@everyone", "permissions": "0"}]})
+        self.client.fetch_guild.return_value = fresh
+        with self.assertRaises(RelayError):
+            await self.adapter.authorize("300", "100", "200")
+        self.assertIs(self.channel.guild, self.guild)
+        self.assertIs(self.user.guild, self.guild)
+        self.assertIs(self.bot.guild, self.guild)
+        # A new check must see a newly granted role, never a cached denial.
+        fresh.owner_id = 300
+        self.bot = self.member("400", roles=["500"])
+        fresh._roles[500] = discord.Role(guild=fresh, state=self.state, data={
+            "id": "500", "name": "Bot", "permissions": str(discord.Permissions(
+                view_channel=True, read_message_history=True, send_messages=True).value)})
+        access = await self.adapter.authorize("300", "100", "200")
+        self.assertEqual(access.guild_name, "Fresh")
+        self.assertIs(access.target.guild, fresh)
+        self.assertIsNot(access.target, self.channel)
+        self.assertIs(self.channel.guild, self.guild)
+
+    async def test_parallel_users_and_channels_share_only_matching_rest_requests(self):
+        started = set()
+        all_started, release = asyncio.Event(), asyncio.Event()
+        other_channel = self.make_channel()
+        other_channel.id = 201
+        other_user = self.member("301")
+
+        async def endpoint(name, value):
+            started.add(name)
+            if len(started) == 6:
+                all_started.set()
+            await release.wait()
+            return value
+
+        async def guild(*args, **kwargs):
+            return await endpoint("guild", self.guild)
+        async def channel(channel_id):
+            return await endpoint(f"channel:{channel_id}", self.channel if channel_id == 200 else other_channel)
+        async def member(member_id):
+            return await endpoint(f"member:{member_id}", {300:self.user, 301:other_user, 400:self.bot}[member_id])
+
+        self.client.fetch_guild.side_effect = guild
+        self.client.fetch_channel.side_effect = channel
+        self.fetch_members.side_effect = member
+        tasks = [asyncio.create_task(self.adapter.authorize(user, "100", channel))
+                 for user, channel in (("300", "200"), ("300", "201"), ("301", "200"))]
+        try:
+            await asyncio.wait_for(all_started.wait(), 1)
+            release.set()
+            access = await asyncio.gather(*tasks)
+            self.assertEqual(self.client.fetch_guild.await_count, 1)
+            self.assertEqual(self.client.fetch_channel.await_count, 2)
+            self.assertEqual(self.fetch_members.await_count, 3)
+            self.fetch_channels.assert_not_awaited()
+            self.assertIsNot(access[0].target, access[2].target)
+        finally:
+            release.set()
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     async def test_pending_members_are_denied_and_timed_out_members_are_read_only(self):
         self.user = self.member("300", pending=True)

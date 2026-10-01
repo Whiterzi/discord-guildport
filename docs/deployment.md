@@ -43,3 +43,7 @@ This release uses one process and one SQLite database. Do not run multiple worke
 Use a test bot/guild to verify slash command visibility, Message Content access, ephemeral credentials, member removal, channel denies, timeout, slowmode, HTTPS streaming and host restart. Automated tests do not substitute for this live integration check. Administrator opt-in must describe external message processing; bot installation for another feature is insufficient.
 
 Use Discord's official Bot API. Review the [Developer Policy](https://support-dev.discord.com/hc/en-us/articles/8563934450327-Discord-Developer-Policy) and [Developer Terms](https://support-dev.discord.com/hc/en-us/articles/8562894815383-Discord-Developer-Terms-of-Service), including permission, API-data sharing and retention restrictions, for your deployment. This code does not grant platform approval.
+
+## Stream latency
+
+Server 0.1.0a5 verifies channel overwrites through the single-channel REST endpoint. It does not enumerate all guild channels on each permission check: that separate Discord rate-limit bucket can stall live delivery for seconds. Guild/member/channel lookups run concurrently and deduplicate matching requests still in flight; permission results are not retained beyond the configured live-read interval. Send/history checks remain fresh. This server fix also benefits existing CLI releases.
