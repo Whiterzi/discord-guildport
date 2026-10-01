@@ -62,6 +62,7 @@ async def main():
         site = web.TCPSite(runner, "127.0.0.1", 0)
         await site.start()
         port = runner.addresses[0][1]
+        service.browser.configure(f"http://127.0.0.1:{port}")
         print(json.dumps({"url": f"http://127.0.0.1:{port}", "username": username, "password": password}), flush=True)
         stop = asyncio.Event()
         loop = asyncio.get_running_loop()

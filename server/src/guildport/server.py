@@ -11,6 +11,7 @@ import uuid
 
 from aiohttp import web
 
+from .browser import BrowserAccess, CSP, PUBLIC_PATHS
 from .events import EventHub
 from .models import Adapter, RelayError
 from .store import Store, hash_password, verify_password
@@ -57,13 +58,15 @@ def string(data, key, maximum, default=None):
 
 
 def bearer(request):
+    if "session_token" in request:
+        return request["session_token"]
     value = request.headers.get("Authorization", "")
     return value[7:] if value.startswith("Bearer ") else ""
 
 
 class RelayService:
     def __init__(self, store: Store, adapter: Adapter, hub=None, heartbeat=10, prune_interval=300,
-                 read_recheck_seconds=5):
+                 read_recheck_seconds=5, browser_origin=None):
         if prune_interval <= 0:
             raise ValueError("prune_interval must be positive.")
         if not math.isfinite(read_recheck_seconds) or not 0 <= read_recheck_seconds <= 30:
@@ -79,6 +82,7 @@ class RelayService:
         self.streams = {}
         self.send_locks = {}
         self.closing = False
+        self.browser = BrowserAccess(self, browser_origin)
 
     @asynccontextmanager
     async def send_lock(self, key):
@@ -105,10 +109,13 @@ class RelayService:
         return access
 
     async def login(self, request):
+        return web.json_response(await self.login_session(request))
+
+    async def login_session(self, request, default_device="CLI"):
         data = await body(request, {"username", "password", "device"})
         name = string(data, "username", 80)
         password = string(data, "password", 256)
-        device = string(data, "device", 80, "CLI")
+        device = string(data, "device", 80, default_device)
         self.limits.check("login-ip:" + (request.remote or "unknown"), 40, 60)
         self.limits.check("login-name:" + name, 10, 60)
         if self.password_slots.locked():
@@ -121,8 +128,8 @@ class RelayService:
         if not valid or latest is None or latest["password_hash"] != encoded:
             raise RelayError(401, "invalid_login", "Incorrect account or password.")
         token, expires = self.store.session(latest["discord_id"], device)
-        return web.json_response({"token": token, "expires_at": expires,
-                                  "user": {"discord_id": latest["discord_id"], "username": name}})
+        return {"token": token, "expires_at": expires,
+                "user": {"discord_id": latest["discord_id"], "username": name}}
 
     async def me(self, request):
         return web.json_response(request["user"])
@@ -291,11 +298,15 @@ class RelayService:
         @web.middleware
         async def boundary(request, handler):
             try:
-                if request.headers.get("Origin"):
-                    raise RelayError(403, "browser_origin", "This API accepts CLI clients only.")
+                is_web = request.path.startswith("/web-api/")
+                is_asset = request.path in PUBLIC_PATHS or request.path.startswith("/assets/")
+                if is_web:
+                    self.browser.validate(request)
+                elif request.headers.get("Origin") and not is_asset:
+                    raise RelayError(403, "browser_origin", "Use the web interface for browser requests.")
                 if self.closing:
                     raise RelayError(503, "shutting_down", "Relay is shutting down.")
-                if request.path not in ("/health", "/v1/login"):
+                if not is_asset and request.path not in ("/health", "/v1/login", "/web-api/login", "/web-api/logout"):
                     request["user"] = self.store.authenticate(bearer(request))
                     self.limits.check("api:" + request["user"]["discord_id"], 120, 60)
                 response = await handler(request)
@@ -310,6 +321,10 @@ class RelayService:
             if not response.prepared:
                 response.headers["Cache-Control"] = "no-store"
                 response.headers["X-Content-Type-Options"] = "nosniff"
+                response.headers["Content-Security-Policy"] = CSP
+                response.headers["Referrer-Policy"] = "no-referrer"
+                response.headers["X-Frame-Options"] = "DENY"
+                response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
             return response
 
         app = web.Application(middlewares=[boundary], client_max_size=16 * 1024)
@@ -341,6 +356,7 @@ class RelayService:
             web.post("/v1/channels/{channel_id}/messages", self.send),
             web.get("/v1/channels/{channel_id}/events", self.events),
         ])
+        app.add_routes(self.browser.routes())
         async def shutdown(app):
             self.closing = True
             for channel_id in list(self.hub.listeners):

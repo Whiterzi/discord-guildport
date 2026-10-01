@@ -126,7 +126,8 @@ class OnboardingTests(unittest.IsolatedAsyncioTestCase):
         text = quick_start("https://relay.example.com", "gp_300")
         command = text.split("```sh\n")[1].split("\n```")[0]
         args = shlex.split(command)
-        self.assertEqual(args, ["npx", "--yes", "--package=discord-guildport@alpha",
+        self.assertIn("[開啟 GuildPort](https://relay.example.com/)", text)
+        self.assertEqual(args, ["npx", "--yes", "--package=discord-guildport@latest",
             "dcgp", "login", "--server", "https://relay.example.com", "--username", "gp_300"])
 
     def test_privacy_notice_discloses_actual_read_check_interval(self):

@@ -1,6 +1,6 @@
 # Embed GuildPort in an existing discord.py bot
 
-Install `./server` into the same environment as the host bot. It supports `discord.Client` plus `app_commands.CommandTree`; conversion to `commands.Bot` is not necessary.
+Run `npm ci --prefix web` and `npm run build --prefix web` from the repository root, then install `./server` into the same environment as the host bot. Published wheels already contain the web assets. It supports `discord.Client` plus `app_commands.CommandTree`; conversion to `commands.Bot` is not necessary.
 
 ```python
 from pathlib import Path
@@ -67,3 +67,5 @@ GUILDPORT_DELIVERY_RETENTION_HOURS=24
 ```
 
 Its adapter uses the bot's existing client and command tree and stores state under `.runtime/relay/`. The gallery API remains separate. Configure TLS and Message Content access, then restart the host through its normal deployment process. No channel becomes accessible until its administrator enables it.
+
+The plugin serves the web interface at `public_url + "/"` and uses that exact origin for browser request validation. No second HTTP process or CORS configuration is needed. Browser and CLI users share accounts, allowlists, permission checks and rate limits.

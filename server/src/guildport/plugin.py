@@ -43,7 +43,8 @@ class RelayPlugin:
         self.public_url, self.port = public_url.rstrip("/"), port
         self.store = Store(database, delivery_retention_hours=delivery_retention_hours)
         self.adapter = DiscordAdapter(client)
-        self.service = RelayService(self.store, self.adapter, read_recheck_seconds=read_recheck_seconds)
+        self.service = RelayService(self.store, self.adapter, read_recheck_seconds=read_recheck_seconds,
+                                    browser_origin=self.public_url)
         self.runner = None
         self.closed = False
         self._commands = []
@@ -54,7 +55,7 @@ class RelayPlugin:
             if self.closed or interaction.guild_id is None or self.client.get_guild(interaction.guild_id) is None:
                 raise RelayError(403, "guild_install_required", "請在已安裝 GuildPort bot 的伺服器執行。")
 
-        @app_commands.command(name="register", description="建立 GuildPort CLI 帳號（僅自己可見）")
+        @app_commands.command(name="register", description="建立 GuildPort 帳號（網頁／CLI）（僅自己可見）")
         @app_commands.guild_only()
         @app_commands.allowed_installs(guilds=True, users=False)
         async def register(interaction: discord.Interaction):
@@ -78,13 +79,13 @@ class RelayPlugin:
             require_guild(interaction)
             username = self.store.register(user_id, encoded)
             await interaction.followup.send(
-                f"GuildPort CLI 帳號已建立。這組帳密僅用於 GuildPort。\n"
+                f"GuildPort 帳號已建立。這組帳密僅用於 GuildPort。\n"
                 f"帳號：`{username}`\n初始密碼：||`{password}`||\n"
                 "請保存初始密碼；之後不再顯示，可用 /relay-account reset 重設。\n\n"
                 + quick_start(self.public_url, username),
                 ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
-        @app_commands.command(name="dcgp", description="取得可直接貼上的 GuildPort CLI 登入與啟動指令")
+        @app_commands.command(name="dcgp", description="取得 GuildPort 網頁入口與 CLI 登入指令")
         @app_commands.guild_only()
         @app_commands.allowed_installs(guilds=True, users=False)
         async def dcgp(interaction: discord.Interaction):
@@ -96,10 +97,10 @@ class RelayPlugin:
                 content + "\n\n提醒：訊息經 Relay 處理，並非端對端加密。",
                 ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
-        account = app_commands.Group(name="relay-account", description="管理 GuildPort CLI 帳號",
+        account = app_commands.Group(name="relay-account", description="管理 GuildPort 網頁與 CLI 帳號",
             guild_only=True, allowed_installs=app_commands.AppInstallationType(guild=True, user=False))
 
-        @account.command(name="reset", description="產生新密碼並撤銷所有 CLI 登入")
+        @account.command(name="reset", description="產生新密碼並撤銷所有裝置登入")
         async def reset(interaction: discord.Interaction):
             await interaction.response.defer(ephemeral=True, thinking=True)
             password = secrets.token_urlsafe(24)
@@ -108,22 +109,22 @@ class RelayPlugin:
             self.store.reset(str(interaction.user.id), encoded)
             await interaction.followup.send(f"所有裝置已登出。新密碼：||`{password}`||", ephemeral=True)
 
-        @account.command(name="logout-all", description="撤銷所有 CLI 裝置登入")
+        @account.command(name="logout-all", description="撤銷所有網頁與 CLI 登入")
         async def logout_all(interaction: discord.Interaction):
             self.store.revoke_all(str(interaction.user.id))
-            await interaction.response.send_message("所有 CLI 裝置已登出。", ephemeral=True)
+            await interaction.response.send_message("所有裝置已登出。", ephemeral=True)
 
-        @account.command(name="delete", description="刪除 GuildPort CLI 帳號與登入資料")
+        @account.command(name="delete", description="刪除 GuildPort 帳號與登入資料")
         async def delete(interaction: discord.Interaction, confirm: bool):
             if confirm:
                 self.store.delete_account(str(interaction.user.id))
-            await interaction.response.send_message("GuildPort CLI 帳號已刪除。" if confirm else "未刪除帳號。", ephemeral=True)
+            await interaction.response.send_message("GuildPort 帳號已刪除。" if confirm else "未刪除帳號。", ephemeral=True)
 
-        admin = app_commands.Group(name="relay", description="管理 CLI 可用頻道",
+        admin = app_commands.Group(name="relay", description="管理 GuildPort 可用頻道",
             guild_only=True, default_permissions=discord.Permissions(manage_guild=True),
             allowed_installs=app_commands.AppInstallationType(guild=True, user=False))
 
-        @admin.command(name="enable", description="開放此文字頻道給具原始權限的 CLI 使用者")
+        @admin.command(name="enable", description="開放此文字頻道給具原始權限的 GuildPort 使用者")
         async def enable(interaction: discord.Interaction, channel: discord.TextChannel):
             await interaction.response.defer(ephemeral=True, thinking=True)
             if channel.guild.id != interaction.guild_id:
@@ -133,12 +134,12 @@ class RelayPlugin:
             await self.adapter.authorize(user_id, guild_id, channel_id)
             self.store.enable(guild_id, channel_id, user_id)
             await interaction.followup.send(
-                f"已開放 <#{channel_id}> 的 CLI 存取。請告知成員此頻道使用 GuildPort；"
+                f"已開放 <#{channel_id}> 的 GuildPort 存取。請告知成員此頻道使用 GuildPort；"
                 "只有具原始權限的已註冊成員可使用。\n\n"
                 + privacy_notice(self.store.delivery_retention_hours, self.service.read_recheck_seconds),
                 ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
-        @admin.command(name="disable", description="停止此頻道的 CLI 存取")
+        @admin.command(name="disable", description="停止此頻道的 GuildPort 存取")
         async def disable(interaction: discord.Interaction, channel: discord.TextChannel):
             await interaction.response.defer(ephemeral=True, thinking=True)
             if channel.guild.id != interaction.guild_id:
@@ -146,7 +147,7 @@ class RelayPlugin:
             await self.adapter.require_admin(str(interaction.guild_id), str(interaction.user.id))
             self.store.disable(str(channel.id))
             self.service.hub.publish(channel.id, {"type": "resync_required"})
-            await interaction.followup.send("已停止此頻道的 CLI 存取。", ephemeral=True)
+            await interaction.followup.send("已停止此頻道的 GuildPort 存取。", ephemeral=True)
 
         for command in (register, dcgp, reset, logout_all, delete, enable, disable):
             command.error(command_error)

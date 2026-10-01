@@ -19,3 +19,6 @@ tmp/
 *.hmac-key
 .DS_Store
 .npmrc
+/server/src/guildport/web_static/
+/web/test-results/
+/web/playwright-report/

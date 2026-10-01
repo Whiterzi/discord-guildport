@@ -1,15 +1,16 @@
 # Discord GuildPort
 
-An interactive terminal client for Discord communities, served through a bot you operate.
+Web and terminal clients for Discord communities, served through a bot you operate.
 
-Run `dcgp`, pick a server and channel with the arrow keys, and chat. GuildPort uses its own accounts and device sessions. Discord messages are sent by the bot with explicit sender attribution; GuildPort never asks for a Discord user password or user token.
+Open your relay’s URL in a browser, or run `dcgp` and pick a server and channel with the arrow keys. GuildPort uses its own accounts and device sessions. Discord messages are sent by the bot with explicit sender attribution; GuildPort never asks for a Discord user password or user token.
 
 **CLI release: 0.1.0, npm channel `latest`.** The Python relay remains a prerelease for small deployments. Automated checks cover the API, Discord adapter, CLI integration and terminal interaction; each relay deployment still requires its own live Discord validation. This project is not affiliated with or approved by Discord.
 
 ## What it does
 
 - `/register` shows a privacy notice and creates an account after the invoking user agrees; credentials are returned ephemerally.
-- `/dcgp` privately generates copyable login/menu commands using the published CLI, with the relay URL and username prefilled. Passwords and tokens never appear in these commands.
+- `/dcgp` privately provides the web login link and copyable login/menu commands using the published CLI, with the relay URL and username prefilled. Passwords and tokens never appear in these commands.
+- The web client uses the same account, with a searchable channel sidebar, live chat, history pagination, dark/light themes and mobile navigation. Browser sessions use HttpOnly cookies; messages and drafts stay in memory.
 - `dcgp` opens an interactive login/menu. Use ↑/↓ and Enter to choose a shared server and an enabled channel.
 - Full-screen chat keeps the channel/status header and composer fixed. Page Up / Page Down scroll; Esc returns to the picker; End jumps to the latest messages. New messages preserve your draft and reading position.
 - Scriptable commands provide listing, history, sending and newline-delimited event output.
@@ -20,8 +21,9 @@ Run `dcgp`, pick a server and channel with the arrow keys, and chat. GuildPort u
 ## Architecture
 
 ```text
-dcgp (TypeScript / npm)
-       │ HTTPS + authenticated SSE
+Browser (JavaScript / Vite)        dcgp (TypeScript / npm)
+       │ HttpOnly cookie                 │ Bearer token
+       └──────── HTTPS + SSE ────────────┘
 GuildPort core (Python / aiohttp / SQLite)
        │ Adapter interface
 Discord adapter (discord.py, existing bot connection)
@@ -29,7 +31,7 @@ Discord adapter (discord.py, existing bot connection)
 Discord
 ```
 
-`server/src/guildport` is an independent Python package. `cli` is an independent npm package named `discord-guildport`, with the executable `dcgp`. The host bot supplies its client and command tree; GuildPort does not import the host project's code. A standalone development host and an offline demo are included.
+`server/src/guildport` is an independent Python package. `cli` is an independent npm package named `discord-guildport`, with the executable `dcgp`. `web` contains the independent web client source and browser tests; its build is bundled in the Python wheel. The host bot supplies its client and command tree; GuildPort does not import the host project's code. A standalone development host and an offline demo are included.
 
 ## Try the offline demo
 
@@ -40,13 +42,15 @@ git clone https://github.com/Whiterzi/discord-guildport.git
 cd discord-guildport
 python3 -m venv .venv
 .venv/bin/python -m pip install --upgrade pip
+npm ci --prefix web
+npm run build --prefix web
 .venv/bin/python -m pip install -e ./server
 npm ci --prefix cli
 npm run build --prefix cli
 .venv/bin/python examples/demo.py
 ```
 
-The demo prints a loopback URL and temporary GuildPort credentials. In a second terminal, from the repository root:
+The demo prints a loopback URL and temporary GuildPort credentials. Open that URL in a browser to try the web client. To try the CLI, in a second terminal, from the repository root:
 
 ```sh
 node cli/dist/main.js
@@ -63,7 +67,7 @@ npm install --global ./discord-guildport-0.1.0.tgz
 dcgp
 ```
 
-The stable CLI release command is `npm install --global discord-guildport@latest`, or `npx --yes --package=discord-guildport@latest dcgp` without a global installation. This checkout prepares CLI `0.1.0`; the registry changes only after its maintainer publishes it. Existing sessions remain usable. Relay server 0.1.0a5 or newer is recommended for the permission-query latency fix. Existing deployments may still generate `@alpha` commands through `/dcgp`; switch those to `@latest` only after verifying the stable package is published. Pushing this repository does not publish npm packages.
+The stable CLI release command is `npm install --global discord-guildport@latest`, or `npx --yes --package=discord-guildport@latest dcgp` without a global installation. CLI `0.1.0` is published on `latest`. Existing sessions remain usable. Relay server 0.1.0a5 or newer includes the permission-query latency fix; 0.1.0a6 adds the web client and updates `/dcgp` to `@latest`. Pushing this repository does not publish npm packages.
 
 ## Discord setup
 
@@ -72,7 +76,7 @@ The stable CLI release command is `npm install --global discord-guildport@latest
 3. Set `DISCORD_TOKEN` securely in the process environment. Set `GUILDPORT_TEST_GUILD` to restrict development command sync to one server. `GUILDPORT_PUBLIC_URL` defaults to `http://127.0.0.1:8769`; external clients require your own HTTPS origin.
 4. Start the development bot with `.venv/bin/python -m guildport.standalone`.
 5. A server administrator uses `/relay enable channel:#general`, after informing members how this relay processes messages. Installation alone does not enable channels.
-6. Each user runs `/register` in Discord, reads and accepts the privacy notice, then uses `/dcgp` for copyable login and interactive menu commands. Login prompts for the password separately.
+6. Each user runs `/register` in Discord, reads and accepts the privacy notice, then uses `/dcgp` for the web entry point or copyable CLI commands. Login prompts for the password separately.
 
 No Discord credentials belong in the CLI. For production, terminate TLS at a reverse proxy; the API binds only to `127.0.0.1`. See [deployment](docs/deployment.md), [embedding](docs/embedding.md), and [data handling](docs/privacy.md).
 

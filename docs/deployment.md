@@ -47,3 +47,19 @@ Use Discord's official Bot API. Review the [Developer Policy](https://support-de
 ## Stream latency
 
 Server 0.1.0a5 verifies channel overwrites through the single-channel REST endpoint. It does not enumerate all guild channels on each permission check: that separate Discord rate-limit bucket can stall live delivery for seconds. Guild/member/channel lookups run concurrently and deduplicate matching requests still in flight; permission results are not retained beyond the configured live-read interval. Send/history checks remain fresh. This server fix also benefits existing CLI releases.
+
+## Web client
+
+Server 0.1.0a6 serves the bundled web client at the root of `GUILDPORT_PUBLIC_URL`, alongside the CLI API. Existing HTTPS reverse-proxy routing to the relay can remain in place. `GUILDPORT_PUBLIC_URL` is the exact trusted browser origin; configure the final URL including any non-default port. A different host alias cannot log in. Do not enable wildcard CORS or rewrite browser Origin headers.
+
+When installing from this repository, build the web client **before** building/installing the Python distribution:
+
+```sh
+npm ci --prefix web
+npm run build --prefix web
+.venv/bin/python -m build server
+```
+
+The Vite build writes only to `server/src/guildport/web_static/`, which is ignored by Git and included as wheel package data. Install the built wheel into the host environment and restart the bot normally. Production does not need Node.js or a separate frontend process. The application serves only its compiled index, favicon and allowlisted assets; it never serves the repository or runtime directory.
+
+For verification, open the HTTPS URL, log in with a GuildPort account, select an allowed channel, check live updates, and log out. Inspect cookie attributes and confirm cross-origin requests are denied. Test on desktop and mobile; current Chromium, Firefox and Safari with AbortSignal.any are required. The offline demo and Playwright tests exercise these flows without accessing Discord. CLI users can keep their existing version and sessions.
