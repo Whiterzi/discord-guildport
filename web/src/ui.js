@@ -1,5 +1,9 @@
 export const $ = (id) => document.getElementById(id);
 const paths = {
+  home: "m3 10 9-7 9 7v11h-6v-7H9v7H3Z",
+  plus: "M12 5v14M5 12h14",
+  compose: "M13 4H4v16h16v-9M16 3l5 5-9 9H7v-5l9-9Z",
+  "chevron-down": "m8 10 4 4 4-4",
   close: "m6 6 12 12M6 18 18 6",
   search: "m21 21-4.5-4.5M19 10.5a8.5 8.5 0 1 1-17 0 8.5 8.5 0 0 1 17 0",
   refresh: "M20 7v5h-5M4 17v-5h5M6 6a8 8 0 0 1 13 3M18 18A8 8 0 0 1 5 15",

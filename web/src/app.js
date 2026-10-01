@@ -27,17 +27,20 @@ function status(text, state = "") {
   el.dataset.state = state;
 }
 function mobile(open) {
-  document.body.classList.toggle("sidebar-open", open);
-  $("sidebar-scrim").hidden = !open;
+  if (narrow.matches) document.body.classList.toggle("sidebar-open", open);
+  else document.body.classList.toggle("sidebar-collapsed", !open);
+  $("sidebar-scrim").hidden = !open || !narrow.matches;
   $("open-sidebar").setAttribute("aria-expanded", String(open));
   sidebarAccessibility();
-  if (open) $("guild-select").focus();
+  if (open) $("close-sidebar").focus();
   else $("open-sidebar").focus();
 }
 const narrow = matchMedia("(max-width:700px)");
 function sidebarAccessibility() {
   const open = document.body.classList.contains("sidebar-open");
-  $("sidebar").inert = narrow.matches && !open;
+  $("sidebar").inert = narrow.matches
+    ? !open
+    : document.body.classList.contains("sidebar-collapsed");
   document.querySelector(".main-panel").inert = narrow.matches && open;
 }
 narrow.addEventListener("change", () => {
@@ -52,6 +55,55 @@ sidebarAccessibility();
 $("open-sidebar").onclick = () => mobile(true);
 $("choose-channel").onclick = () => mobile(true);
 $("close-sidebar").onclick = $("sidebar-scrim").onclick = () => mobile(false);
+function openLogin() {
+  if (document.body.classList.contains("sidebar-open")) mobile(false);
+  if (!$("login-dialog").open) $("login-dialog").showModal();
+  $("username").focus();
+}
+$("login-open").onclick =
+  $("start-login").onclick =
+  $("home-login").onclick =
+    openLogin;
+$("login-dialog").addEventListener("close", () => {
+  $("password").value = "";
+});
+function view(mode) {
+  if (mode === "channels" && !user) return openLogin();
+  document.body.dataset.view = mode;
+  $("login-view").hidden = !!user;
+  $("empty-view").hidden = !user || (mode === "chat" && !!active);
+  $("chat-view").hidden = mode !== "chat" || !active;
+  $("view-chat").setAttribute("aria-pressed", String(mode !== "channels"));
+  $("view-channels").setAttribute("aria-pressed", String(mode === "channels"));
+  $("empty-title").textContent =
+    mode === "channels" ? "選擇要聊天的頻道" : "今天，想聊些什麼？";
+  $("rail-home").classList.toggle("selected", mode !== "channels");
+  $("rail-channels").classList.toggle("selected", mode === "channels");
+  renderSuggestions();
+  if (!$("chat-view").hidden) {
+    drawMessages(active, true);
+    updateComposer();
+  }
+}
+function home() {
+  view("home");
+  if (document.body.classList.contains("sidebar-open")) mobile(false);
+}
+function searchChannels() {
+  if (!user) return openLogin();
+  mobile(true);
+  $("channel-search").focus();
+}
+$("rail-home").onclick =
+  $("sidebar-home").onclick =
+  $("new-chat").onclick =
+    home;
+$("rail-channels").onclick = $("view-channels").onclick = () =>
+  view("channels");
+$("view-chat").onclick = () => view(active ? "chat" : "home");
+$("rail-search").onclick = $("sidebar-search").onclick = searchChannels;
+$("composer-tools").onclick = $("composer-context").onclick = () =>
+  view("channels");
 document.addEventListener("keydown", (event) => {
   if (
     event.key === "Escape" &&
@@ -65,8 +117,7 @@ document.addEventListener("keydown", (event) => {
     !document.querySelector("dialog[open]")
   ) {
     event.preventDefault();
-    if (matchMedia("(max-width:700px)").matches) mobile(true);
-    $("channel-search").focus();
+    searchChannels();
   }
 });
 let dark = matchMedia("(prefers-color-scheme: dark)").matches;
@@ -90,17 +141,19 @@ $("show-password").onclick = () => {
   $("show-password").setAttribute("aria-label", show ? "隱藏密碼" : "顯示密碼");
 };
 $("privacy-button").onclick = () => $("privacy-dialog").showModal();
+$("sidebar-privacy").onclick = $("privacy-button").onclick;
 document
   .querySelectorAll(".dialog-close")
   .forEach(
     (button) => (button.onclick = () => button.closest("dialog").close()),
   );
 $("account-button").onclick = () => {
-  if (!user) return;
+  if (!user) return openLogin();
   $("account-details").textContent =
     `${user.username} · Discord ${user.discord_id}`;
   $("account-dialog").showModal();
 };
+$("top-account-button").onclick = $("account-button").onclick;
 const broadcast =
   typeof BroadcastChannel === "function"
     ? new BroadcastChannel("guildport-session")
@@ -124,6 +177,11 @@ function reset(message = "") {
   guilds = [];
   channels = [];
   drafts.clear();
+  document.body.dataset.session = "signed-out";
+  $("login-open").hidden = false;
+  $("top-account-button").hidden = true;
+  $("home-channel-search").value = "";
+  $("home-channels").replaceChildren();
   $("login-view").hidden = false;
   $("empty-view").hidden = $("chat-view").hidden = true;
   $("messages").replaceChildren();
@@ -136,10 +194,7 @@ function reset(message = "") {
   $("guild-select").replaceChildren(new Option("登入後選擇伺服器", ""));
   $("guild-select").disabled = true;
   $("channel-search").value = "";
-  $("channel-search").disabled =
-    $("refresh-channels").disabled =
-    $("account-button").disabled =
-      true;
+  $("channel-search").disabled = $("refresh-channels").disabled = true;
   $("account-name").textContent = "尚未登入";
   $("account-avatar").textContent = "G";
   $("header-title").textContent = "GuildPort";
@@ -154,6 +209,8 @@ function reset(message = "") {
   $("sidebar-scrim").hidden = true;
   $("open-sidebar").setAttribute("aria-expanded", "false");
   sidebarAccessibility();
+  view("home");
+  if (message) openLogin();
 }
 function authError(error) {
   if (error.status === 401) {
@@ -164,6 +221,11 @@ function authError(error) {
 }
 async function signedIn(me) {
   user = me;
+  document.body.dataset.session = "signed-in";
+  $("login-open").hidden = true;
+  $("top-account-button").hidden = false;
+  $("login-dialog").close();
+  view("home");
   $("login-view").hidden = true;
   $("empty-view").hidden = false;
   $("account-name").textContent = me.username;
@@ -240,6 +302,7 @@ async function loadGuilds() {
       $("messages").replaceChildren();
       $("chat-view").hidden = true;
       $("empty-view").hidden = false;
+      view("home");
       channels = [];
       renderChannels();
       $("empty-description").textContent =
@@ -273,6 +336,7 @@ async function loadChannels() {
   $("messages").replaceChildren();
   $("chat-view").hidden = true;
   $("empty-view").hidden = false;
+  view("home");
   $("header-title").textContent = "GuildPort";
   $("header-subtitle").textContent =
     guilds.find((g) => g.id === guild)?.name || "";
@@ -280,6 +344,7 @@ async function loadChannels() {
   channels = [];
   renderChannels();
   $("channel-search").value = "";
+  $("home-channel-search").value = "";
   $("channel-search").disabled = true;
   try {
     const result = await request(
@@ -313,8 +378,41 @@ $("refresh-channels").onclick = () => {
   }
   loadGuilds();
 };
-$("channel-search").oninput = renderChannels;
+$("channel-search").oninput = () => {
+  $("home-channel-search").value = $("channel-search").value;
+  renderChannels();
+};
+$("home-channel-search").oninput = () => {
+  $("channel-search").value = $("home-channel-search").value;
+  renderChannels();
+};
+function renderSuggestions() {
+  const query = $("home-channel-search").value.trim().toLocaleLowerCase();
+  const items = channels.filter((channel) =>
+    channel.name.toLocaleLowerCase().includes(query),
+  );
+  const limit = document.body.dataset.view === "channels" || query ? 50 : 3;
+  $("home-channels").replaceChildren(
+    ...items.slice(0, limit).map((channel) => {
+      const button = node("button", "suggestion-channel");
+      button.append(
+        icon("hash"),
+        node("span", "", channel.name),
+        node(
+          "span",
+          "suggestion-guild",
+          guilds.find((g) => g.id === channel.guild_id)?.name || "",
+        ),
+      );
+      button.onclick = () => selectChannel(channel);
+      return button;
+    }),
+  );
+  if (query && !items.length)
+    $("home-channels").append(node("p", "nav-empty", "沒有符合的頻道"));
+}
 function renderChannels() {
+  renderSuggestions();
   const filtered = channels.filter((channel) =>
     channel.name
       .toLocaleLowerCase()
@@ -400,6 +498,7 @@ function selectChannel(channel) {
   });
   $("empty-view").hidden = $("login-view").hidden = true;
   $("chat-view").hidden = false;
+  view("chat");
   $("messages").replaceChildren();
   $("new-messages").hidden = true;
   $("header-title").textContent = "# " + channel.name;
@@ -443,7 +542,7 @@ function nearBottom() {
   return el.scrollHeight - el.scrollTop - el.clientHeight < 90;
 }
 function drawMessages(state, follow = false) {
-  if (active !== state) return;
+  if (active !== state || $("chat-view").hidden) return;
   const scroll = $("messages-scroll"),
     atBottom = follow || nearBottom(),
     oldTop = scroll.scrollTop,

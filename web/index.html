@@ -11,12 +11,51 @@
       name="description"
       content="使用 GuildPort 帳號，在瀏覽器與你的 Discord 社群聊天。"
     />
-    <title>GuildPort — 你的社群，隨時連線</title>
+    <title>GuildPort</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <script type="module" src="/src/app.js"></script>
   </head>
-  <body>
+  <body data-view="home" data-session="signed-out">
     <div class="app-shell">
+      <nav class="app-rail" aria-label="應用程式導覽">
+        <button
+          class="rail-button selected"
+          id="rail-home"
+          aria-label="首頁"
+          title="首頁"
+          data-icon="home"
+        ></button>
+        <button
+          class="rail-button"
+          id="rail-channels"
+          aria-label="瀏覽頻道"
+          title="瀏覽頻道"
+          data-icon="chat"
+        ></button>
+        <button
+          class="rail-button"
+          id="rail-search"
+          aria-label="搜尋"
+          title="搜尋"
+          data-icon="search"
+        ></button>
+        <button
+          class="rail-button"
+          id="privacy-button"
+          aria-label="關於訊息隱私"
+          title="關於訊息隱私"
+          data-icon="shield"
+        ></button>
+        <button
+          id="account-button"
+          class="rail-button account-button"
+          aria-label="帳號選單"
+          title="帳號選單"
+        >
+          <span class="account-avatar" id="account-avatar">G</span
+          ><span class="sr-only" id="account-name">尚未登入</span>
+        </button>
+      </nav>
       <button
         class="sidebar-scrim"
         id="sidebar-scrim"
@@ -24,17 +63,29 @@
         hidden
       ></button>
       <aside class="sidebar" id="sidebar" aria-label="伺服器與頻道">
-        <div class="sidebar-brand">
-          <img src="/favicon.svg" alt="" width="30" height="30" /><span
-            >GuildPort<span class="wordmark-dot">.</span></span
-          ><button
-            class="icon-button mobile-only"
-            id="close-sidebar"
-            aria-label="關閉側邊欄"
-            data-icon="close"
-          ></button>
+        <div class="sidebar-header">
+          <button class="sidebar-brand" id="sidebar-home">GuildPort</button>
+          <div class="sidebar-header-actions">
+            <button
+              class="icon-button"
+              id="sidebar-search"
+              aria-label="搜尋頻道"
+              title="搜尋頻道"
+              data-icon="search"
+            ></button
+            ><button
+              class="icon-button"
+              id="close-sidebar"
+              aria-label="關閉側邊欄"
+              title="關閉側邊欄"
+              data-icon="panel"
+            ></button>
+          </div>
         </div>
-        <div class="nav-label">你的空間 <span class="small-dot"></span></div>
+        <button class="new-chat" id="new-chat">
+          <span data-icon="compose"></span>開始聊天
+        </button>
+        <div class="nav-label">伺服器</div>
         <label class="sr-only" for="guild-select">選擇伺服器</label>
         <div class="guild-picker">
           <span data-icon="guild"></span
@@ -54,7 +105,7 @@
           /><kbd>/</kbd></label
         >
         <div class="channels-heading">
-          <span>文字頻道</span
+          <span>頻道</span
           ><button
             class="icon-button"
             id="refresh-channels"
@@ -65,28 +116,17 @@
           ></button>
         </div>
         <nav id="channels" class="channel-list" aria-label="可用頻道">
-          <p class="nav-empty">登入後，你的頻道會出現在這裡。</p>
+          <p class="nav-empty">登入後顯示你的頻道</p>
         </nav>
-        <div class="sidebar-bottom">
-          <button id="privacy-button" class="quiet-button">
-            <span data-icon="shield"></span>關於訊息隱私<span
-              class="trailing"
-              data-icon="arrow-up-right"
-            ></span></button
-          ><button id="account-button" class="account-button" disabled>
-            <span class="account-avatar" id="account-avatar">G</span
-            ><span class="account-text"
-              ><strong id="account-name">尚未登入</strong
-              ><span>GuildPort 帳號</span></span
-            ><span data-icon="more"></span>
-          </button>
-        </div>
+        <button class="quiet-button mobile-only" id="sidebar-privacy">
+          <span data-icon="shield"></span>關於訊息隱私
+        </button>
       </aside>
       <main class="main-panel">
         <header class="topbar">
           <div class="topbar-left">
             <button
-              class="icon-button mobile-only"
+              class="icon-button sidebar-opener"
               id="open-sidebar"
               aria-label="開啟頻道選單"
               aria-expanded="false"
@@ -95,18 +135,30 @@
             ></button>
             <div class="channel-heading">
               <span id="header-title">GuildPort</span
-              ><span id="header-subtitle">你的社群，隨時連線</span>
+              ><span id="header-subtitle"></span>
             </div>
+          </div>
+          <div class="mode-switch" aria-label="切換檢視">
+            <button id="view-chat" aria-pressed="true">聊天</button
+            ><button id="view-channels" aria-pressed="false">頻道</button>
           </div>
           <div class="topbar-right">
             <span class="connection" id="connection" role="status"
               ><i></i><span>等待登入</span></span
+            ><button class="login-open" id="login-open">登入</button
             ><button
               class="icon-button"
               id="theme-button"
               aria-label="切換深色模式"
               title="切換深色模式"
               data-icon="moon"
+            ></button
+            ><button
+              class="icon-button mobile-only"
+              id="top-account-button"
+              aria-label="帳號選單"
+              data-icon="user"
+              hidden
             ></button>
           </div>
         </header>
@@ -115,81 +167,48 @@
           id="login-view"
           aria-labelledby="login-title"
         >
-          <div class="welcome-card">
-            <div class="welcome-symbol">
-              <img src="/favicon.svg" alt="" width="54" height="54" />
-            </div>
-            <div class="eyebrow">A LITTLE CLOSER TO YOUR COMMUNITY</div>
-            <h1 id="login-title">讓對話，繼續。</h1>
-            <p class="welcome-description">
-              熟悉的 Discord 社群，安靜、專注的聊天空間。<br />使用你的
-              GuildPort 帳號，即可開始。
-            </p>
-            <form id="login-form" class="login-form">
-              <label for="username">GuildPort 帳號</label
-              ><input
-                id="username"
-                name="username"
-                autocomplete="username"
-                placeholder="gp_你的 Discord ID"
-                required
-                maxlength="80"
-              /><label for="password">密碼</label>
-              <div class="password-field">
-                <input
-                  id="password"
-                  name="password"
-                  type="password"
-                  autocomplete="current-password"
-                  placeholder="輸入 GuildPort 密碼"
-                  required
-                  maxlength="256"
-                /><button
-                  type="button"
-                  id="show-password"
-                  class="icon-button"
-                  aria-label="顯示密碼"
-                  data-icon="eye"
-                ></button>
-              </div>
-              <p id="login-error" class="form-error" role="alert" hidden></p>
-              <button
-                class="primary-button login-submit"
-                id="login-submit"
-                type="submit"
-              >
-                登入 GuildPort<span data-icon="arrow-right"></span>
+          <div class="home-content">
+            <h1 id="login-title">有什麼想聊的？</h1>
+            <button class="home-prompt login-prompt" id="start-login">
+              <span data-icon="plus"></span
+              ><span class="prompt-placeholder">登入後開始聊天</span
+              ><span class="prompt-send" data-icon="arrow-up"></span>
+            </button>
+            <div class="home-suggestions">
+              <button id="home-login">
+                <span data-icon="chat"></span
+                ><span>使用 GuildPort 帳號，接上你的 Discord 對話。</span>
               </button>
-            </form>
-            <p class="register-hint">
-              還沒有帳號？在 Discord 執行 <code>/register</code>
-            </p>
-            <div class="login-footnote">
-              <span data-icon="shield"></span
-              ><span
-                >使用 GuildPort 帳密，不是 Discord 密碼。<br />訊息經 relay
-                處理，並非端對端加密。</span
-              >
+              <p>
+                <span data-icon="user"></span
+                ><span>還沒有帳號？在 Discord 執行 <code>/register</code></span>
+              </p>
             </div>
           </div>
         </section>
         <section class="welcome-view" id="empty-view" hidden>
-          <div class="empty-card">
-            <span class="empty-symbol" data-icon="chat"></span>
-            <div class="eyebrow">YOUR COMMUNITY, ONE CONVERSATION AWAY</div>
-            <h1>今天，想聊些什麼？</h1>
-            <p id="empty-description">
-              從左側選擇一個頻道，接上正在發生的對話。
+          <div class="home-content">
+            <h1 id="empty-title">今天，想聊些什麼？</h1>
+            <label class="home-prompt"
+              ><span data-icon="plus"></span
+              ><input
+                type="search"
+                id="home-channel-search"
+                placeholder="選擇頻道，開始聊天"
+                aria-label="尋找聊天頻道"
+                autocomplete="off" /><button
+                id="choose-channel"
+                type="button"
+                class="icon-button"
+                aria-label="選擇伺服器與頻道"
+                title="選擇伺服器與頻道"
+                data-icon="panel"
+              ></button
+            ></label>
+            <p id="empty-description" class="home-description">
+              選擇頻道，接上正在發生的對話。
             </p>
-            <button class="quiet-button mobile-only" id="choose-channel">
-              <span data-icon="panel"></span>選擇頻道
-            </button>
-            <div class="welcome-details">
-              <span><span data-icon="hash"></span>只顯示你可存取的頻道</span
-              ><span
-                ><span data-icon="shield"></span>沿用 Discord 存取權限</span
-              >
-            </div>
+            <div class="home-suggestions" id="home-channels"></div>
           </div>
         </section>
         <section class="chat-view" id="chat-view" hidden aria-label="頻道聊天">
@@ -226,6 +245,14 @@
               已查看歷史，允許再次送出
             </button>
             <form id="composer-form" class="composer">
+              <button
+                type="button"
+                class="icon-button composer-menu"
+                id="composer-tools"
+                aria-label="選擇其他頻道"
+                title="選擇其他頻道"
+                data-icon="plus"
+              ></button>
               <label class="sr-only" for="message-input">訊息內容</label
               ><textarea
                 id="message-input"
@@ -234,34 +261,89 @@
                 aria-describedby="composer-hint"
                 disabled
               ></textarea>
-              <div class="composer-bottom">
-                <span id="composer-context"
-                  ><span data-icon="hash"></span
-                  ><span id="composer-channel">頻道</span></span
-                >
-                <div class="send-controls">
-                  <span id="character-count">0 / 1800</span
-                  ><button
-                    id="send-button"
-                    type="submit"
-                    class="send-button"
-                    aria-label="送出訊息"
-                    title="送出訊息"
-                    data-icon="arrow-up"
-                    disabled
-                  ></button>
-                </div>
-              </div>
+              <button type="button" id="composer-context" title="選擇頻道">
+                <span id="composer-channel">頻道</span
+                ><span data-icon="chevron-down"></span>
+              </button>
+              <button
+                id="send-button"
+                type="submit"
+                class="send-button"
+                aria-label="送出訊息"
+                title="送出訊息"
+                data-icon="arrow-up"
+                disabled
+              ></button>
             </form>
             <p class="composer-hint" id="composer-hint">
               <span>Enter 送出 · Shift + Enter 換行</span
-              ><span>透過 GuildPort 代送 · 非端對端加密</span>
+              ><span>透過 GuildPort 代送，並非端對端加密。</span
+              ><span id="character-count">0 / 1800</span>
             </p>
           </div>
         </section>
         <div class="toast" id="toast" role="status" hidden></div>
+        <footer class="home-footer">
+          只顯示你有權限的頻道。訊息經 GuildPort 轉送，並非端對端加密。
+        </footer>
       </main>
     </div>
+    <dialog
+      id="login-dialog"
+      class="dialog login-dialog"
+      aria-labelledby="login-dialog-title"
+    >
+      <div class="dialog-heading">
+        <span>GuildPort</span
+        ><button
+          class="icon-button dialog-close"
+          aria-label="關閉登入"
+          data-icon="close"
+        ></button>
+      </div>
+      <h2 id="login-dialog-title">歡迎回來</h2>
+      <p>登入你的 GuildPort 帳號，即可開始聊天。</p>
+      <form id="login-form" class="login-form">
+        <label for="username">GuildPort 帳號</label
+        ><input
+          id="username"
+          name="username"
+          autocomplete="username"
+          placeholder="gp_你的 Discord ID"
+          required
+          maxlength="80"
+        /><label for="password">密碼</label>
+        <div class="password-field">
+          <input
+            id="password"
+            name="password"
+            type="password"
+            autocomplete="current-password"
+            placeholder="輸入 GuildPort 密碼"
+            required
+            maxlength="256"
+          /><button
+            type="button"
+            id="show-password"
+            class="icon-button"
+            aria-label="顯示密碼"
+            data-icon="eye"
+          ></button>
+        </div>
+        <p id="login-error" class="form-error" role="alert" hidden></p>
+        <button
+          class="primary-button login-submit"
+          id="login-submit"
+          type="submit"
+        >
+          登入 GuildPort<span data-icon="arrow-right"></span>
+        </button>
+      </form>
+      <p class="register-hint">
+        尚未註冊？在 Discord 執行 <code>/register</code>
+      </p>
+      <p class="login-footnote">請使用 GuildPort 帳密，不是 Discord 密碼。</p>
+    </dialog>
     <dialog id="privacy-dialog" class="dialog">
       <div class="dialog-heading">
         <span class="dialog-symbol" data-icon="shield"></span

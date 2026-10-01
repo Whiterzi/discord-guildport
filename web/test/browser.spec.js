@@ -40,6 +40,7 @@ const test = base.extend({
 });
 async function login(page, demo) {
   await page.goto(demo.url);
+  await page.getByRole("button", { name: "登入", exact: true }).click();
   await page.getByLabel("GuildPort 帳號", { exact: true }).fill(demo.username);
   await page.getByLabel("密碼", { exact: true }).fill(demo.password);
   await page
@@ -71,12 +72,13 @@ test("desktop login shell, invalid login, privacy and theme", async ({
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(demo.url);
   await expect(
-    page.getByRole("heading", { name: "讓對話，繼續。" }),
+    page.getByRole("heading", { name: "有什麼想聊的？" }),
   ).toBeVisible();
   await page.screenshot({
     animations: "disabled",
     path: join(root, "tmp/web-login-desktop.png"),
   });
+  await page.getByRole("button", { name: "登入", exact: true }).click();
   await page.getByLabel("GuildPort 帳號", { exact: true }).fill("gp_300");
   await page.getByLabel("密碼", { exact: true }).fill("wrong");
   await page
@@ -85,6 +87,7 @@ test("desktop login shell, invalid login, privacy and theme", async ({
   await expect(page.getByRole("alert")).toHaveText(
     "帳號或密碼不正確，請再試一次。",
   );
+  await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "關於訊息隱私" }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await page.keyboard.press("Escape");
@@ -102,9 +105,13 @@ test("existing account, filtering, history, multiline send, live messages and no
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await login(page, demo);
-  await page.getByRole("searchbox").fill("missing");
+  await page
+    .getByRole("searchbox", { name: "搜尋頻道", exact: true })
+    .fill("missing");
   await expect(page.getByText("找不到符合的頻道。")).toBeVisible();
-  await page.getByRole("searchbox").fill("gen");
+  await page
+    .getByRole("searchbox", { name: "搜尋頻道", exact: true })
+    .fill("gen");
   await openChat(page);
   await expect(page.locator(".message")).toHaveCount(50);
   await expect(
@@ -173,6 +180,7 @@ test("mobile drawer, no overflow and responsive composer", async ({
     animations: "disabled",
     path: join(root, "tmp/web-login-mobile.png"),
   });
+  await page.getByRole("button", { name: "登入", exact: true }).click();
   await page.getByLabel("GuildPort 帳號", { exact: true }).fill(demo.username);
   await page.getByLabel("密碼", { exact: true }).fill(demo.password);
   await page
@@ -213,12 +221,12 @@ test("cookie restores on reload, logout removes content and session", async ({
   await page.locator("#account-button").click();
   await page.getByRole("button", { name: "登出這個瀏覽器" }).click();
   await expect(
-    page.getByRole("heading", { name: "讓對話，繼續。" }),
+    page.getByRole("heading", { name: "有什麼想聊的？" }),
   ).toBeVisible();
   await expect(page.locator(".message")).toHaveCount(0);
   await page.reload();
   await expect(
-    page.getByRole("heading", { name: "讓對話，繼續。" }),
+    page.getByRole("heading", { name: "有什麼想聊的？" }),
   ).toBeVisible();
 });
 
@@ -235,7 +243,7 @@ test("revoking all devices closes live stream and clears chat", async ({
     data: {},
   });
   await expect(
-    page.getByRole("heading", { name: "讓對話，繼續。" }),
+    page.getByRole("heading", { name: "有什麼想聊的？" }),
   ).toBeVisible({ timeout: 12_000 });
   await expect(page.locator(".message")).toHaveCount(0);
 });
@@ -325,4 +333,33 @@ test("automatic reconnect refreshes deleted messages without losing the draft", 
     "Keep this through reconnect",
   );
   await expect(page.locator(".message")).toHaveCount(50);
+});
+
+test("two-level navigation, channel overview and collapsed sidebar preserve the draft", async ({
+  page,
+  demo,
+}) => {
+  await login(page, demo);
+  await expect(page.locator(".app-rail")).toBeVisible();
+  await page.getByRole("button", { name: "關閉側邊欄", exact: true }).click();
+  await expect(page.locator("#sidebar")).toBeHidden();
+  await page.getByRole("button", { name: "開啟頻道選單", exact: true }).click();
+  await expect(page.locator("#sidebar")).toBeVisible();
+  await openChat(page);
+  const input = page.getByRole("textbox", { name: "訊息內容" });
+  await input.fill("保留草稿，稍後繼續");
+  await page.locator("#view-channels").click();
+  await expect(
+    page.getByRole("heading", { name: "選擇要聊天的頻道" }),
+  ).toBeVisible();
+  await page.getByRole("searchbox", { name: "尋找聊天頻道" }).fill("gen");
+  await expect(page.locator("#home-channels button")).toHaveCount(1);
+  await page.locator("#view-chat").click();
+  await expect(input).toHaveValue("保留草稿，稍後繼續");
+  await page.locator("#new-chat").click();
+  await expect(
+    page.getByRole("heading", { name: "今天，想聊些什麼？" }),
+  ).toBeVisible();
+  await page.locator("#home-channels button").first().click();
+  await expect(input).toHaveValue("保留草稿，稍後繼續");
 });
