@@ -1,8 +1,22 @@
 import "./style.css";
 import { $, node, icon, icons, messageNode, dayLabel } from "./ui.js";
 import { ApiError, request, events, delay, errorText } from "./api.js";
+import { createImageViewer } from "./image-viewer.js";
 
 icons();
+const imageViewer = createImageViewer(() => $("message-input"));
+function previewItems() {
+  const unique = new Map();
+  for (const button of $("messages").querySelectorAll("[data-preview-src]")) {
+    const { previewSrc: src, previewHref: href, previewLabel: label } = button.dataset;
+    if (!unique.has(src)) unique.set(src, { src, href, label });
+  }
+  return [...unique.values()];
+}
+$("messages").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-preview-src]");
+  if (button) imageViewer.show(previewItems(), button.dataset.previewSrc, button);
+});
 let user = null,
   guilds = [],
   channels = [],
@@ -69,6 +83,7 @@ $("login-dialog").addEventListener("close", () => {
 });
 function view(mode) {
   if (mode === "channels" && !user) return openLogin();
+  if (mode !== "chat") imageViewer.close();
   document.body.dataset.view = mode;
   $("login-view").hidden = !!user;
   $("empty-view").hidden = !user || (mode === "chat" && !!active);
@@ -162,6 +177,7 @@ if (broadcast)
   broadcast.onmessage = () =>
     reset("帳號登入狀態已在另一個視窗變更，請重新登入。");
 function stopChannel() {
+  imageViewer.close();
   if (active) {
     active.controller.abort();
     clearTimeout(active.refreshTimer);
@@ -570,6 +586,7 @@ function drawMessages(state, follow = false) {
       node("p", "nav-empty", "這個頻道還沒有訊息。第一句，就從你開始。"),
     );
   $("messages").replaceChildren(fragment);
+  imageViewer.sync(previewItems());
   if (atBottom) {
     scroll.scrollTop = scroll.scrollHeight;
     state.unread = 0;
@@ -614,6 +631,7 @@ async function recent(state, initial = false) {
 }
 function denied(state, message) {
   if (active !== state) return;
+  imageViewer.close();
   state.revoked = true;
   state.connected = false;
   state.controller.abort();

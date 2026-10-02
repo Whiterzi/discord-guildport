@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
+import { previewMedia } from "../src/media.js";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const test = base.extend({
@@ -235,8 +236,10 @@ test("revoking all devices closes live stream and clears chat", async ({
   demo,
   request,
 }) => {
+  await previewFixtures(page);
   await login(page, demo);
   await openChat(page);
+  await page.getByRole("button", { name: "在小視窗預覽：風景", exact: true }).click();
   const token = await externalLogin(request, demo);
   await request.post(demo.url + "/v1/logout-all", {
     headers: { Authorization: "Bearer " + token },
@@ -246,6 +249,8 @@ test("revoking all devices closes live stream and clears chat", async ({
     page.getByRole("heading", { name: "有什麼想聊的？" }),
   ).toBeVisible({ timeout: 12_000 });
   await expect(page.locator(".message")).toHaveCount(0);
+  await expect(page.getByRole("dialog", { name: "圖片小視窗" })).toBeHidden();
+  await expect(page.locator(".image-viewer img")).toHaveCount(0);
 });
 
 test("uncertain sends preserve draft and require an explicit retry decision", async ({
@@ -362,4 +367,142 @@ test("two-level navigation, channel overview and collapsed sidebar preserve the 
   ).toBeVisible();
   await page.locator("#home-channels button").first().click();
   await expect(input).toHaveValue("保留草稿，稍後繼續");
+});
+
+test("media recognition preserves signatures and excludes local, unsafe and non-media URLs", () => {
+  for (const url of ["javascript:alert(1)", "data:image/svg+xml,hi", "file:///tmp/a.png",
+    "https://localhost/a.png", "https://printer.local/a.png", "https://127.0.0.1/a.png",
+    "https://[::1]/a.png", "https://2130706433/a.png", "https://0x7f000001/a.png",
+    "https://images.example.com:8443/a.png", "https://user:password@images.example.com/a.png",
+    "https://imgur.com/a/Abcde12", "https://example.com/page", "https://example.com/a.png.exe"])
+    expect(previewMedia(url), url).toBeNull();
+  const signed = "https://cdn.discordapp.com/attachments/123/456/photo.png?ex=abc&hm=a%2Bb%2Fc";
+  expect(previewMedia(signed)).toEqual({ src: signed, kind: "image" });
+  expect(previewMedia("http://imgur.com/Abcde12")).toEqual({ src: "https://i.imgur.com/Abcde12.jpg", kind: "image" });
+  expect(previewMedia("https://i.imgur.com/Abcde12.gifv")).toEqual({ src: "https://i.imgur.com/Abcde12.mp4", kind: "video" });
+  expect(previewMedia("https://images.example.com/photo?format=webp").kind).toBe("image");
+});
+
+const previewOne = "https://images.example.com/one.png?signature=a%2Bb&ex=123";
+async function previewFixtures(page) {
+  const requests = [];
+  await page.route(/^https:\/\/(images\.example\.com|i\.imgur\.com)\//, (route) => {
+    requests.push({ url: route.request().url(), headers: route.request().headers() });
+    if (route.request().url().includes("missing.png")) return route.fulfill({ status: 404, body: "" });
+    return route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 440"><defs><linearGradient id="sky" x2="0" y2="1"><stop stop-color="#ccdce6"/><stop offset="1" stop-color="#f5e8d4"/></linearGradient></defs><path fill="url(#sky)" d="M0 0h640v440H0z"/><circle cx="480" cy="95" r="36" fill="#fff6df"/><path fill="#819d93" d="m0 270 150-145 165 160 165-112 160 123v144H0z"/><path fill="#405e54" d="m0 335 175-135 225 175 125-90 115 74v81H0z"/><path fill="#ced9cc" d="m285 330 105 10 75 100H200z"/></svg>' });
+  });
+  await page.route("**/web-api/channels/200/messages?*", async (route) => {
+    const response = await route.fetch(), data = await response.json();
+    const last = data.messages.at(-1);
+    if (last) {
+      last.content += `\n[風景](${previewOne})\nhttps://imgur.com/Abcde12\nhttps://images.example.com/missing.png\n` +
+        "`https://images.example.com/code.png`\n||https://images.example.com/spoiler.png||";
+      last.attachments = [{ name: "第二張.png", url: "https://images.example.com/two.webp" },
+        { name: "重複圖片.png", url: previewOne }, { name: "SPOILER_hidden.png", url: "https://images.example.com/hidden.png" }];
+    }
+    await route.fulfill({ response, json: data });
+  });
+  return { requests };
+}
+
+test("floating previews load on demand, keep the composer usable and support gallery, drag and resize", async ({ page, demo, request }) => {
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  const fixtures = await previewFixtures(page);
+  await login(page, demo);
+  await openChat(page);
+  const viewer = page.getByRole("dialog", { name: "圖片小視窗" });
+  const open = page.getByRole("button", { name: "在小視窗預覽：風景", exact: true });
+  await expect(open).toBeVisible();
+  expect(fixtures.requests).toEqual([]);
+  await expect(page.locator("#messages img, #messages video")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /在小視窗預覽：SPOILER/ })).toHaveCount(0);
+  await open.click();
+  await expect(viewer).toBeVisible();
+  await expect(viewer.locator("img")).toHaveAttribute("src", previewOne);
+  await expect(viewer.locator(".image-viewer-stage")).toHaveAttribute("aria-busy", "false");
+  await expect(viewer.getByText("1 / 4", { exact: true })).toBeVisible();
+  expect(fixtures.requests).toHaveLength(1);
+  expect(fixtures.requests[0].headers.referer).toBeUndefined();
+  expect(fixtures.requests[0].headers.cookie).toBeUndefined();
+  const input = page.getByRole("textbox", { name: "訊息內容" });
+  await input.fill("看圖時仍能繼續打字");
+  const token = await externalLogin(request, demo);
+  await request.post(demo.url + "/v1/channels/200/messages", {
+    headers: { Authorization: "Bearer " + token }, data: { content: "A new message while viewing", request_id: crypto.randomUUID() },
+  });
+  await expect(page.getByText("A new message while viewing", { exact: true })).toBeVisible();
+  await expect(viewer.locator("img")).toHaveAttribute("src", previewOne);
+  expect(fixtures.requests).toHaveLength(1);
+  const before = await viewer.boundingBox();
+  const drag = await viewer.getByRole("button", { name: "移動圖片視窗" }).boundingBox();
+  await page.mouse.move(drag.x + 25, drag.y + 15);
+  await page.mouse.down(); await page.mouse.move(drag.x - 100, drag.y + 70); await page.mouse.up();
+  expect((await viewer.boundingBox()).x).toBeLessThan(before.x);
+  const resize = viewer.getByRole("button", { name: "調整圖片視窗大小" });
+  await resize.focus(); await page.keyboard.press("ArrowRight");
+  expect((await viewer.boundingBox()).width).toBeGreaterThan(before.width);
+  await viewer.getByRole("button", { name: "小型圖片視窗" }).click();
+  expect((await viewer.boundingBox()).width).toBe(300);
+  await viewer.getByRole("button", { name: "中型圖片視窗" }).click();
+  await page.screenshot({ path: join(root, "tmp/web-image-viewer.png"), animations: "disabled" });
+  await page.getByRole("button", { name: "切換深色模式" }).click();
+  await page.screenshot({ path: join(root, "tmp/web-image-viewer-dark.png"), animations: "disabled" });
+  await viewer.getByRole("button", { name: "下一張圖片" }).click();
+  await expect(viewer.locator("img")).toHaveAttribute("src", "https://i.imgur.com/Abcde12.jpg");
+  await page.keyboard.press("ArrowRight");
+  await expect(viewer.getByText(/無法顯示/)).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(viewer).toBeHidden();
+  await expect(page.locator(".image-viewer img, .image-viewer video")).toHaveCount(0);
+  await expect(input).toHaveValue("看圖時仍能繼續打字");
+  expect(await page.evaluate(() => localStorage.length + sessionStorage.length)).toBe(0);
+  expect(errors).toEqual([]);
+});
+
+test("mobile preview stays in the viewport and clears on navigation and access denial", async ({ page, demo }) => {
+  await previewFixtures(page);
+  await login(page, demo);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("button", { name: "開啟頻道選單" }).click();
+  await openChat(page);
+  const open = () => page.getByRole("button", { name: "在小視窗預覽：風景", exact: true }).click();
+  const viewer = page.getByRole("dialog", { name: "圖片小視窗" });
+  await open();
+  await viewer.getByRole("button", { name: "大型圖片視窗" }).click();
+  await page.screenshot({ path: join(root, "tmp/web-image-viewer-mobile.png"), animations: "disabled" });
+  let rect = await viewer.boundingBox();
+  expect(rect.x).toBeGreaterThanOrEqual(12);
+  expect(rect.x + rect.width).toBeLessThanOrEqual(378);
+  await page.setViewportSize({ width: 844, height: 390 });
+  rect = await viewer.boundingBox();
+  await expect.poll(async () => { const r = await viewer.boundingBox(); return r.y + r.height; }).toBeLessThanOrEqual(378);
+  await page.locator("#view-channels").click();
+  await expect(viewer).toBeHidden();
+  await expect(page.locator(".image-viewer img")).toHaveCount(0);
+  await page.locator("#view-chat").click();
+  await open();
+  await page.route("**/web-api/channels/200/messages?*", (route) => route.fulfill({ status: 403,
+    contentType: "application/json", body: JSON.stringify({ error: { code: "access_denied", message: "Denied" } }) }));
+  await page.getByRole("button", { name: "載入較早訊息", exact: true }).focus();
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#connection")).toHaveText("無法存取");
+  await expect(viewer).toBeHidden();
+  await expect(page.locator(".image-viewer img")).toHaveCount(0);
+});
+
+test("channel changes and logout discard the active preview", async ({ page, demo }) => {
+  await previewFixtures(page);
+  await login(page, demo); await openChat(page);
+  const viewer = page.getByRole("dialog", { name: "圖片小視窗" });
+  await page.getByRole("button", { name: "在小視窗預覽：風景", exact: true }).click();
+  await page.locator("#channels").getByRole("button", { name: "general", exact: true }).click();
+  await expect(viewer).toBeHidden();
+  await expect(page.locator(".image-viewer img")).toHaveCount(0);
+  await expect(page.locator("#connection")).toHaveText("已連線");
+  await page.getByRole("button", { name: "在小視窗預覽：風景", exact: true }).click();
+  await page.locator("#account-button").click();
+  await page.getByRole("button", { name: "登出這個瀏覽器" }).click();
+  await expect(page.locator(".media-preview-button")).toHaveCount(0);
+  await expect(page.locator(".image-viewer a")).not.toHaveAttribute("href");
 });

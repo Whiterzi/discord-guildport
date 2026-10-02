@@ -1,5 +1,12 @@
+import { previewMedia } from "./media.js";
+
 export const $ = (id) => document.getElementById(id);
 const paths = {
+  image: "M3 3h18v18H3ZM3 16l5-5 4 4 3-3 6 6M9 7h.01",
+  grip: "M8 8h.01M16 8h.01M8 16h.01M16 16h.01",
+  resize: "M7 20 20 7M13 20l7-7",
+  "chevron-left": "m15 5-7 7 7 7",
+  "chevron-right": "m9 5 7 7-7 7",
   home: "m3 10 9-7 9 7v11h-6v-7H9v7H3Z",
   plus: "M12 5v14M5 12h14",
   compose: "M13 4H4v16h16v-9M16 3l5 5-9 9H7v-5l9-9Z",
@@ -64,6 +71,19 @@ export function safeUrl(value) {
     return null;
   }
 }
+function previewButton(href, label) {
+  const media = previewMedia(href);
+  if (!media) return null;
+  const button = node("button", "media-preview-button");
+  button.type = "button";
+  button.dataset.previewSrc = media.src;
+  button.dataset.previewHref = href;
+  button.dataset.previewLabel = label;
+  button.setAttribute("aria-label", `在小視窗預覽：${label}`);
+  button.title = "在小視窗預覽（點擊後向原站載入）";
+  button.append(icon("image"), node("span", "", "預覽"));
+  return button;
+}
 function inline(parent, text) {
   // Text nodes only: Discord content is never interpreted as HTML.
   const tokens =
@@ -94,6 +114,8 @@ function inline(parent, text) {
         a.target = "_blank";
         a.rel = "noopener noreferrer";
         parent.append(a);
+        const preview = previewButton(href, markdown ? markdown[1] : "訊息圖片");
+        if (preview) parent.append(preview);
       } else parent.append(document.createTextNode(part));
     }
     previous = match.index + part.length;
@@ -156,7 +178,11 @@ export function messageNode(message, userId) {
       icon("file"),
       document.createTextNode(attachment.name || "附件"),
     );
-    main.append(link);
+    const row = node("div", "attachment-row");
+    row.append(link);
+    const preview = previewButton(href, attachment.name || "附件圖片");
+    if (preview && !attachment.name?.startsWith("SPOILER_")) row.append(preview);
+    main.append(row);
   }
   article.append(main);
   return article;

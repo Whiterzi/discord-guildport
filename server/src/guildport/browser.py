@@ -13,7 +13,7 @@ from .models import RelayError
 WEB_ROOT = Path(__file__).parent / "web_static"
 PUBLIC_PATHS = {"/", "/favicon.svg"}
 CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; "
-       "img-src 'self' data:; connect-src 'self'; font-src 'self'; "
+       "img-src 'self' data: https:; media-src https:; connect-src 'self'; font-src 'self'; "
        "base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
 
 

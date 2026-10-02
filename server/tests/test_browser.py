@@ -42,6 +42,8 @@ class BrowserTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status, 200)
         self.assertIn("frame-ancestors 'none'", response.headers['Content-Security-Policy'])
         self.assertNotIn('unsafe-inline', response.headers['Content-Security-Policy'])
+        self.assertIn("img-src 'self' data: https:; media-src https:;", response.headers['Content-Security-Policy'])
+        self.assertIn("connect-src 'self';", response.headers['Content-Security-Policy'])
         self.assertEqual(response.headers['Referrer-Policy'], 'no-referrer')
         self.assertEqual(response.headers['Cache-Control'], 'no-store')
         html = await response.text()
