@@ -133,12 +133,22 @@ svg {
   background: var(--hover);
   color: var(--text);
 }
-.rail-button.selected[data-icon="home"] svg {
-  fill: currentColor;
-}
 .rail-button svg {
   width: 19px;
   height: 19px;
+}
+.brand-mark {
+  display: block;
+  flex-shrink: 0;
+  border-radius: 29%;
+}
+:root[data-theme="dark"] .brand-mark {
+  filter: invert(1);
+}
+.brand-wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
 }
 .account-button {
   margin-top: auto;
@@ -156,13 +166,63 @@ svg {
   font-weight: 500;
 }
 .sidebar {
-  width: 232px;
+  position: relative;
+  width: var(--sidebar-width, 232px);
   flex-shrink: 0;
   background: var(--sidebar);
   display: flex;
   flex-direction: column;
   padding: 0 10px 12px;
   border-right: 1px solid var(--line);
+}
+.sidebar-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: -5px;
+  width: 9px;
+  z-index: 4;
+  cursor: col-resize;
+  touch-action: none;
+}
+.sidebar-resizer::before,
+.sidebar-resizer::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  background: var(--secondary);
+  border-radius: 3px;
+}
+.sidebar-resizer::before {
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  opacity: 0;
+}
+.sidebar-resizer::after {
+  top: calc(50% - 16px);
+  left: 2px;
+  width: 4px;
+  height: 32px;
+  opacity: 0.25;
+}
+.sidebar-resizer:hover::before,
+.sidebar-resizer:focus-visible::before,
+.sidebar-resizing .sidebar-resizer::before {
+  opacity: 0.35;
+}
+.sidebar-resizer:hover::after,
+.sidebar-resizer:focus-visible::after,
+.sidebar-resizing .sidebar-resizer::after {
+  opacity: 0.9;
+}
+.sidebar-resizer:focus-visible {
+  outline: none;
+}
+body.sidebar-resizing,
+.sidebar-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
 }
 .sidebar-header {
   height: 56px;
@@ -173,6 +233,9 @@ svg {
   flex-shrink: 0;
 }
 .sidebar-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
   font-size: 16px;
   font-weight: 550;
   padding: 6px 8px;
@@ -348,6 +411,8 @@ svg {
   line-height: 1.7;
 }
 .main-panel {
+  container-type: inline-size;
+  container-name: main-panel;
   position: relative;
   flex: 1;
   min-width: 0;
@@ -1126,7 +1191,16 @@ code {
     font-size: 13px;
   }
 }
+@container main-panel (max-width: 620px) {
+  .connection > span { display: none; }
+  .topbar { padding: 0 14px; }
+  .channel-heading > span:first-child { max-width: 90px; font-size: 13px; }
+  .mode-switch button { min-width: 61px; padding: 6px 12px; }
+}
 @media (max-width: 700px) {
+  .sidebar-resizer {
+    display: none;
+  }
   .mobile-only {
     display: inline-flex;
   }

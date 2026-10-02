@@ -369,6 +369,86 @@ test("two-level navigation, channel overview and collapsed sidebar preserve the 
   await expect(input).toHaveValue("保留草稿，稍後繼續");
 });
 
+test("sidebar resizing preserves drafts and the connection, clamps to the viewport and restores desktop width", async ({ page, demo }) => {
+  const errors = [];
+  let streams = 0;
+  page.on("pageerror", error => errors.push(error.message));
+  page.on("request", request => { if (request.url().endsWith("/events")) streams++; });
+  await login(page, demo);
+  await openChat(page);
+  const input = page.getByRole("textbox", { name: "訊息內容" });
+  await input.fill("調整側欄時保留這份草稿");
+  const sidebar = page.locator("#sidebar");
+  const handle = page.getByRole("separator", { name: "側欄寬度" });
+  const width = () => sidebar.evaluate(element => Math.round(element.getBoundingClientRect().width));
+  const drag = async (distance) => {
+    const box = await handle.boundingBox();
+    await page.mouse.move(box.x + box.width / 2, 240);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 + distance, 260, { steps: 6 });
+  };
+  await drag(128);
+  await page.mouse.up();
+  await expect.poll(width).toBe(360);
+  await expect(handle).toHaveAttribute("aria-valuenow", "360");
+  await page.getByRole("button", { name: "關閉側邊欄", exact: true }).click();
+  await expect(handle).toBeHidden();
+  await page.getByRole("button", { name: "開啟頻道選單", exact: true }).click();
+  await expect.poll(width).toBe(360);
+  await handle.focus();
+  await page.keyboard.press("ArrowLeft");
+  await expect.poll(width).toBe(352);
+  await page.keyboard.press("Shift+ArrowRight");
+  await expect.poll(width).toBe(376);
+  await drag(70);
+  await page.keyboard.press("Escape");
+  await page.mouse.up();
+  await expect.poll(width).toBe(376);
+  await expect(page.locator("body")).not.toHaveClass(/sidebar-resizing/);
+  await handle.press("Home");
+  await expect.poll(width).toBe(216);
+  await handle.press("End");
+  await expect.poll(width).toBe(480);
+  await handle.dblclick();
+  await expect.poll(width).toBe(232);
+  await handle.press("End");
+
+  await page.setViewportSize({ width: 900, height: 800 });
+  await expect.poll(width).toBe(432);
+  await expect(handle).toHaveAttribute("aria-valuemax", "432");
+  await expect.poll(() => input.evaluate(element => element.scrollHeight <= element.clientHeight + 1)).toBe(true);
+  const mode = await page.locator(".mode-switch").boundingBox();
+  const heading = await page.locator(".channel-heading").boundingBox();
+  const actions = await page.locator(".topbar-right").boundingBox();
+  expect(heading.x + heading.width).toBeLessThan(mode.x);
+  expect(mode.x + mode.width).toBeLessThan(actions.x);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: join(root, "tmp/web-sidebar-compact.png"), animations: "disabled" });
+  await page.setViewportSize({ width: 701, height: 800 });
+  await expect.poll(width).toBe(233);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("button", { name: "開啟頻道選單", exact: true }).click();
+  await expect(handle).toBeHidden();
+  await expect.poll(width).toBe(280);
+  await page.screenshot({ path: join(root, "tmp/web-sidebar-mobile.png"), animations: "disabled" });
+  await page.getByRole("button", { name: "關閉側邊欄", exact: true }).click();
+  await expect(input).toHaveValue("調整側欄時保留這份草稿");
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await expect.poll(width).toBe(480);
+  await handle.press("Enter");
+  await expect.poll(width).toBe(232);
+  await drag(128);
+  await page.mouse.up();
+  await page.screenshot({ path: join(root, "tmp/web-sidebar-resized.png"), animations: "disabled" });
+  await page.getByRole("button", { name: "切換深色模式" }).click();
+  await page.screenshot({ path: join(root, "tmp/web-sidebar-dark.png"), animations: "disabled" });
+  await expect(input).toHaveValue("調整側欄時保留這份草稿");
+  await expect(page.locator("#connection")).toHaveText("已連線");
+  expect(streams).toBe(1);
+  expect(errors).toEqual([]);
+});
+
 test("media recognition preserves signatures and excludes local, unsafe and non-media URLs", () => {
   for (const url of ["javascript:alert(1)", "data:image/svg+xml,hi", "file:///tmp/a.png",
     "https://localhost/a.png", "https://printer.local/a.png", "https://127.0.0.1/a.png",

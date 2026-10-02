@@ -3,6 +3,7 @@ import { $, node, icon, icons, messageNode, dayLabel } from "./ui.js";
 import { ApiError, request, events, delay, errorText } from "./api.js";
 import { createImageViewer } from "./image-viewer.js";
 import { customEmoji } from "./media.js";
+import { initSidebarResize } from "./sidebar.js";
 
 icons();
 const imageViewer = createImageViewer(() => $("message-input"));
@@ -131,6 +132,7 @@ function mobile(open) {
   else $("open-sidebar").focus();
 }
 const narrow = matchMedia("(max-width:700px)");
+initSidebarResize($("sidebar"), $("sidebar-resizer"), document.querySelector(".app-rail"), narrow);
 function sidebarAccessibility() {
   const open = document.body.classList.contains("sidebar-open");
   $("sidebar").inert = narrow.matches
@@ -577,6 +579,12 @@ function updateComposer() {
   $("message-input").style.height =
     Math.min(160, $("message-input").scrollHeight) + "px";
 }
+let composerWidth = 0;
+new ResizeObserver(([entry]) => {
+  if (entry.contentRect.width === composerWidth) return;
+  composerWidth = entry.contentRect.width;
+  if (active && !$("chat-view").hidden) updateComposer();
+}).observe($("message-input"));
 function selectChannel(channel) {
   if (active?.sending) {
     toast("訊息正在送出，請稍候再切換。");
