@@ -15,7 +15,26 @@ def message_data(message: discord.Message, relay_bot_id: int | None = None) -> d
             "author": {"id": str(message.author.id), "name": message.author.display_name,
                        "bot": message.author.bot},
             "content": message.content, "created_at": message.created_at.isoformat(),
-            "attachments": [{"name": a.filename, "url": a.url} for a in message.attachments]}
+            "attachments": [{"name": a.filename, "url": a.url, "spoiler": a.is_spoiler()} for a in message.attachments]}
+    # Discord refreshes signed attachment URLs in embed image/thumbnail metadata,
+    # not necessarily in message text. Preserve that metadata for browser previews.
+    media = []
+    seen = {}
+    for embed in message.embeds[:10]:
+        for field in (embed.image, embed.thumbnail):
+            url = field.url
+            if not url:
+                continue
+            if url in seen:
+                if field.proxy_url and "proxy_url" not in seen[url]:
+                    seen[url]["proxy_url"] = field.proxy_url
+                continue
+            item = seen[url] = {"url": url}
+            if field.proxy_url:
+                item["proxy_url"] = field.proxy_url
+            media.append(item)
+    if media:
+        result["media"] = media
     # Only our own bot's messages can supply relay attribution. Other bots/users
     # can copy text or embed fields, so a marker alone is never proof of identity.
     own_message = message.author.id == relay_bot_id and not getattr(message, "webhook_id", None)
@@ -41,7 +60,7 @@ def message_data(message: discord.Message, relay_bot_id: int | None = None) -> d
             parts.extend(str(value) for value in (embed.author.name, embed.title, embed.description, embed.url) if value)
             for field in embed.fields[:25]:
                 parts.append(f"{field.name}: {field.value}")
-        result["content"] = "\n".join(parts)[:12000] or "[Embedded media]"
+        result["content"] = "\n".join(parts)[:12000] or ("" if media else "[Embedded media]")
     return result
 
 
@@ -154,7 +173,17 @@ class DiscordAdapter:
         return Access(guild_id, guild.name, channel_id, channel.name, user.display_name,
                       bool(can_send), 0 if bypass else channel.slowmode_delay, channel, reason,
                       can_embed=bool(up.embed_links and bp.embed_links),
-                      avatar_url=str(user.display_avatar.replace(size=64).url))
+                      avatar_url=str(user.display_avatar.replace(size=64).url),
+                      user_role_ids=frozenset(str(role.id) for role in user.roles),
+                      bot_role_ids=frozenset(str(role.id) for role in bot.roles))
+
+    async def emojis(self, access: Access) -> list[dict]:
+        self.ready()
+        async with self.slots:
+            emojis = await discord_call(access.target.guild.fetch_emojis())
+        return [{"id": str(emoji.id), "name": emoji.name, "animated": emoji.animated,
+                 "available": emoji.available, "roles": [str(role) for role in emoji._roles]}
+                for emoji in emojis]
 
     async def history(self, access: Access, limit: int, before: str | None) -> list[dict]:
         async def fetch():

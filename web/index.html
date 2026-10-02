@@ -148,6 +148,14 @@
             ><button class="login-open" id="login-open">登入</button
             ><button
               class="icon-button"
+              id="emoji-toggle"
+              aria-label="顯示自訂表情符號"
+              aria-pressed="true"
+              data-icon="smile"
+              hidden
+            ></button
+            ><button
+              class="icon-button"
               id="theme-button"
               aria-label="切換深色模式"
               title="切換深色模式"
@@ -265,6 +273,9 @@
                 <span id="composer-channel">頻道</span
                 ><span data-icon="chevron-down"></span>
               </button>
+              <button type="button" id="open-emoji-picker" class="icon-button"
+                aria-label="選擇伺服器表情符號" title="選擇伺服器表情符號"
+                data-icon="smile" disabled></button>
               <button
                 id="send-button"
                 type="submit"
@@ -344,6 +355,15 @@
       </p>
       <p class="login-footnote">請使用 GuildPort 帳密，不是 Discord 密碼。</p>
     </dialog>
+    <dialog id="emoji-picker" class="dialog emoji-picker" aria-labelledby="emoji-picker-title">
+      <div class="dialog-heading"><h2 id="emoji-picker-title">伺服器表情符號</h2>
+        <button class="icon-button dialog-close" aria-label="關閉表情符號選單" data-icon="close"></button>
+      </div>
+      <p>選擇目前伺服器的表情符號，插入訊息後再送出。</p>
+      <input id="emoji-search" type="search" aria-label="搜尋表情符號" placeholder="搜尋名稱…" autocomplete="off" />
+      <p id="emoji-picker-status" role="status"></p>
+      <div id="emoji-picker-items" class="emoji-picker-items"></div>
+    </dialog>
     <dialog id="privacy-dialog" class="dialog">
       <div class="dialog-heading">
         <span class="dialog-symbol" data-icon="shield"></span
@@ -376,7 +396,8 @@
         >完整資料處理說明 ↗</a
       >
       <p>
-        圖片與影片預設不載入。按訊息旁的「預覽」會開啟可拖曳、調整大小的小視窗，
+        一般圖片與影片預設不載入。自訂表情符號預設從 Discord 載入，可用右上角笑臉按鈕關閉。
+        按訊息旁的「預覽」會開啟可拖曳、調整大小的小視窗，
         由瀏覽器直接向原站載入目前那張圖片；原站可得知你的 IP，不傳送 Referer。
         關閉視窗會移除預覽，但原站或瀏覽器的快取不由 GuildPort 控制。
       </p>

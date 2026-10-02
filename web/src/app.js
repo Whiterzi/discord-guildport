@@ -2,9 +2,22 @@ import "./style.css";
 import { $, node, icon, icons, messageNode, dayLabel } from "./ui.js";
 import { ApiError, request, events, delay, errorText } from "./api.js";
 import { createImageViewer } from "./image-viewer.js";
+import { customEmoji } from "./media.js";
 
 icons();
 const imageViewer = createImageViewer(() => $("message-input"));
+let showEmoji = true;
+function emojiToggle() {
+  $("emoji-toggle").setAttribute("aria-pressed", String(showEmoji));
+  $("emoji-toggle").title = showEmoji ? "自訂表情符號：顯示（點擊關閉）" : "自訂表情符號：隱藏（點擊顯示）";
+}
+$("emoji-toggle").onclick = () => {
+  showEmoji = !showEmoji;
+  emojiToggle();
+  imageViewer.close();
+  if (active) drawMessages(active);
+};
+emojiToggle();
 function previewItems() {
   const unique = new Map();
   for (const button of $("messages").querySelectorAll("[data-preview-src]")) {
@@ -23,6 +36,74 @@ let user = null,
   active = null,
   lifetime = new AbortController(),
   navigation = null;
+let emojiRequest = null, emojiItems = [], emojiState = null, emojiSelection = [0, 0];
+function closeEmojiPicker() {
+  emojiRequest?.abort();
+  emojiRequest = null;
+  emojiItems = [];
+  emojiState = null;
+  $("emoji-picker-items").replaceChildren();
+  $("emoji-search").value = "";
+  $("emoji-picker-status").textContent = "";
+  $("emoji-picker").close();
+}
+$("emoji-picker").addEventListener("close", () => {
+  if (!$("emoji-picker").open) closeEmojiPicker();
+});
+function drawEmojiPicker() {
+  const query = $("emoji-search").value.trim().toLocaleLowerCase();
+  const items = emojiItems.filter(item => item.name.toLocaleLowerCase().includes(query));
+  $("emoji-picker-items").replaceChildren(...items.map(item => {
+    const token = `<${item.animated ? "a" : ""}:${item.name}:${item.id}>`;
+    const emoji = customEmoji(token);
+    if (!emoji) return node("span");
+    const button = node("button", "emoji-choice");
+    button.type = "button";
+    button.setAttribute("aria-label", `插入 :${item.name}:`);
+    button.title = `${item.name}${item.animated ? " · 動畫" : ""}`;
+    if (showEmoji) {
+      const image = node("img");
+      image.alt = ""; image.loading = "lazy"; image.referrerPolicy = "no-referrer";
+      image.onerror = () => image.remove();
+      image.src = emoji.url;
+      button.append(image);
+    }
+    button.append(node("span", "", `:${item.name}:`));
+    button.onclick = () => {
+      if (active !== emojiState || !active?.channel.can_send || active.sending || active.revoked) return;
+      const input = $("message-input");
+      const [start, end] = emojiSelection, insertion = token + " ";
+      const result = input.value.slice(0, start) + insertion + input.value.slice(end);
+      if (Array.from(result).length > 1800) return toast("訊息超過 1800 字，請先縮短內容。");
+      input.setRangeText(insertion, start, end, "end");
+      rememberDraft(); updateComposer(); closeEmojiPicker(); input.focus();
+    };
+    return button;
+  }));
+  $("emoji-picker-status").textContent = items.length ? `${items.length} 個可用表情符號`
+    : emojiItems.length ? "找不到符合的表情符號" : "這個伺服器目前沒有你與 bot 都可使用的表情符號。";
+}
+$("emoji-search").oninput = drawEmojiPicker;
+$("open-emoji-picker").onclick = async () => {
+  if (!active?.channel.can_send || active.sending || active.revoked) return;
+  closeEmojiPicker();
+  emojiState = active;
+  emojiSelection = [$("message-input").selectionStart, $("message-input").selectionEnd];
+  const state = emojiState, controller = emojiRequest = new AbortController();
+  $("emoji-picker-status").textContent = "載入中…";
+  $("emoji-picker").showModal(); $("emoji-search").focus();
+  try {
+    const data = await request(`/channels/${state.channel.id}/emojis`, undefined, controller.signal);
+    if (controller.signal.aborted || active !== state) return;
+    emojiItems = data.emojis;
+    drawEmojiPicker();
+  } catch (error) {
+    if (controller.signal.aborted) return;
+    if (authError(error)) return;
+    if ([403, 404].includes(error.status)) return denied(state, errorText(error));
+    $("emoji-picker-status").textContent = errorText(error);
+  }
+};
 const drafts = new Map();
 let toastTimer;
 function toast(text) {
@@ -84,6 +165,7 @@ $("login-dialog").addEventListener("close", () => {
 function view(mode) {
   if (mode === "channels" && !user) return openLogin();
   if (mode !== "chat") imageViewer.close();
+  if (mode !== "chat") closeEmojiPicker();
   document.body.dataset.view = mode;
   $("login-view").hidden = !!user;
   $("empty-view").hidden = !user || (mode === "chat" && !!active);
@@ -178,6 +260,7 @@ if (broadcast)
     reset("帳號登入狀態已在另一個視窗變更，請重新登入。");
 function stopChannel() {
   imageViewer.close();
+  closeEmojiPicker();
   if (active) {
     active.controller.abort();
     clearTimeout(active.refreshTimer);
@@ -196,6 +279,7 @@ function reset(message = "") {
   document.body.dataset.session = "signed-out";
   $("login-open").hidden = false;
   $("top-account-button").hidden = true;
+  $("emoji-toggle").hidden = true;
   $("home-channel-search").value = "";
   $("home-channels").replaceChildren();
   $("login-view").hidden = false;
@@ -240,6 +324,7 @@ async function signedIn(me) {
   document.body.dataset.session = "signed-in";
   $("login-open").hidden = true;
   $("top-account-button").hidden = false;
+  $("emoji-toggle").hidden = false;
   $("login-dialog").close();
   view("home");
   $("login-view").hidden = true;
@@ -477,6 +562,7 @@ function updateComposer() {
   $("character-count").classList.toggle("over-limit", count > 1800);
   $("message-input").disabled =
     !active || !active.channel.can_send || active.sending || active.revoked;
+  $("open-emoji-picker").disabled = $("message-input").disabled;
   $("send-button").disabled =
     !active ||
     !active.connected ||
@@ -511,6 +597,7 @@ function selectChannel(channel) {
     exhausted: false,
     unread: 0,
     refreshTimer: null,
+    revealedSpoilers: new Set(),
   });
   $("empty-view").hidden = $("login-view").hidden = true;
   $("chat-view").hidden = false;
@@ -552,6 +639,8 @@ function merge(state, messages) {
   const all = sorted(state);
   for (const message of all.slice(0, Math.max(0, all.length - 500)))
     state.messages.delete(message.id);
+  for (const key of state.revealedSpoilers)
+    if (!state.messages.has(key.split(":")[0])) state.revealedSpoilers.delete(key);
 }
 function nearBottom() {
   const el = $("messages-scroll");
@@ -579,7 +668,15 @@ function drawMessages(state, follow = false) {
       day = label;
       fragment.append(node("div", "date-divider", label));
     }
-    fragment.append(messageNode(message, user?.discord_id));
+    fragment.append(messageNode(message, user?.discord_id, {
+      showEmoji, revealedSpoilers: state.revealedSpoilers,
+      onReveal(key) {
+        if (active !== state || state.revoked) return;
+        if (state.revealedSpoilers.has(key)) state.revealedSpoilers.delete(key);
+        else state.revealedSpoilers.add(key);
+        drawMessages(state);
+      },
+    }));
   }
   if (!state.messages.size)
     fragment.append(
@@ -632,10 +729,12 @@ async function recent(state, initial = false) {
 function denied(state, message) {
   if (active !== state) return;
   imageViewer.close();
+  closeEmojiPicker();
   state.revoked = true;
   state.connected = false;
   state.controller.abort();
   state.messages.clear();
+  state.revealedSpoilers.clear();
   drafts.delete(state.channel.id);
   $("message-input").value = "";
   $("messages").replaceChildren(node("p", "nav-empty", message));
@@ -683,15 +782,18 @@ async function stream(state) {
           merge(state, [message]);
           drawMessages(state);
         } else if (event.data.type === "message.deleted") {
+          for (const key of state.revealedSpoilers) if (key.startsWith(event.data.message_id + ":")) state.revealedSpoilers.delete(key);
           state.messages.delete(event.data.message_id);
           drawMessages(state);
         } else if (event.data.type === "message.updated") {
+          for (const key of state.revealedSpoilers) if (key.startsWith(event.data.message_id + ":")) state.revealedSpoilers.delete(key);
           if (state.messages.has(event.data.message_id)) {
             const item = state.messages.get(event.data.message_id);
             item.content =
               "這則訊息已編輯；較早的訊息請至 Discord 查看最新內容。";
             delete item.relay_content;
             item.attachments = [];
+            item.media = [];
             item.edited = true;
             drawMessages(state);
           }

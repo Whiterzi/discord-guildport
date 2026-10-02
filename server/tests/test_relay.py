@@ -29,11 +29,21 @@ class FakeAdapter:
         self.fail_send = False
         self.revoke_on_history = False
         self.before = None
+        self.emoji_items = []
+        self.revoke_on_emojis = False
+        self.user_role_ids = frozenset()
+        self.bot_role_ids = frozenset()
 
     async def authorize(self, user_id, guild_id, channel_id, *, for_send=False):
         if user_id not in self.allowed:
             raise RelayError(403, "access_denied", "No access.")
-        return Access(guild_id, "Test Guild", channel_id, "general", "Alice", self.can_send, self.slowmode)
+        return Access(guild_id, "Test Guild", channel_id, "general", "Alice", self.can_send, self.slowmode,
+                      user_role_ids=self.user_role_ids, bot_role_ids=self.bot_role_ids)
+
+    async def emojis(self, access):
+        if self.revoke_on_emojis:
+            self.allowed.clear()
+        return self.emoji_items
 
     async def history(self, access, limit, before):
         self.before = before
@@ -87,6 +97,30 @@ class RelayTests(unittest.IsolatedAsyncioTestCase):
             (hashlib.sha256(data["token"].encode()).hexdigest(),)).fetchone()
         self.assertIsNotNone(row)
         self.assertEqual(response.headers["Cache-Control"], "no-store")
+
+    async def test_emoji_picker_filters_both_role_sets_unavailable_and_rechecks_access(self):
+        self.adapter.user_role_ids=frozenset({"110","111"})
+        self.adapter.bot_role_ids=frozenset({"110","112"})
+        self.adapter.emoji_items=[
+            {"id":"600","name":"public","animated":False,"roles":[]},
+            {"id":"601","name":"both","animated":True,"roles":["110"]},
+            {"id":"602","name":"user_only","animated":False,"roles":["111"]},
+            {"id":"603","name":"bot_only","animated":False,"roles":["112"]},
+            {"id":"604","name":"unavailable","animated":False,"available":False},
+            {"id":"605","name":"different_allowed_roles","animated":False,"roles":["111","112"]}]
+        response=await self.get("/v1/channels/200/emojis")
+        self.assertEqual(response.status,200)
+        items=(await response.json())["emojis"]
+        self.assertEqual([item["id"] for item in items],["600","601","605"])
+        self.assertNotIn("roles",items[0])
+        self.assertEqual((await self.get("/v1/channels/999/emojis")).status,403)
+        self.adapter.can_send=False
+        self.assertEqual((await self.get("/v1/channels/200/emojis")).status,403)
+        self.adapter.can_send=True
+        self.adapter.revoke_on_emojis=True
+        response=await self.get("/v1/channels/200/emojis")
+        self.assertEqual(response.status,403)
+        self.assertNotIn("public",await response.text())
 
     async def test_login_does_not_enumerate_accounts(self):
         results = []

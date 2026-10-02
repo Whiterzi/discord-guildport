@@ -2,7 +2,7 @@
 
 Repository: `Whiterzi/discord-guildport`. npm package: `discord-guildport`. Executable: `dcgp`. Python distribution: `discord-guildport-server`; import package: `guildport`.
 
-CLI **0.1.0** is the first release without an alpha suffix. It includes full-screen chat, searchable server/channel menus, history pagination, Shift+Enter support in compatible terminals (Ctrl+J fallback), and prompt cancellation/terminal restoration. The Python relay is **0.1.0a8** (web client with collapsible navigation and an on-demand floating media viewer), a prerelease intended for small deployments; this CLI release does not change its capacity limits. Server 0.1.0a5 or newer is recommended for the permission-query latency fix.
+CLI **0.1.0** is the first release without an alpha suffix. It includes full-screen chat, searchable server/channel menus, history pagination, Shift+Enter support in compatible terminals (Ctrl+J fallback), and prompt cancellation/terminal restoration. The Python relay is **0.1.0a9** (web client with signed media previews, spoiler controls and server emoji selection), a prerelease intended for small deployments; this CLI release does not change its capacity limits. Server 0.1.0a5 or newer is recommended for the permission-query latency fix.
 
 ## Validate the release
 

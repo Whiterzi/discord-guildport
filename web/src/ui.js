@@ -1,8 +1,9 @@
-import { previewMedia } from "./media.js";
+import { previewMedia, resolvedMediaUrl, customEmoji, discordAttachmentKey } from "./media.js";
 
 export const $ = (id) => document.getElementById(id);
 const paths = {
   image: "M3 3h18v18H3ZM3 16l5-5 4 4 3-3 6 6M9 7h.01",
+  smile: "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0ZM8 9h.01M16 9h.01M8 14s1 3 4 3 4-3 4-3",
   grip: "M8 8h.01M16 8h.01M8 16h.01M16 16h.01",
   resize: "M7 20 20 7M13 20l7-7",
   "chevron-left": "m15 5-7 7 7 7",
@@ -71,28 +72,50 @@ export function safeUrl(value) {
     return null;
   }
 }
-function previewButton(href, label) {
-  const media = previewMedia(href);
+function previewButton(href, label, candidates = []) {
+  const resolved = resolvedMediaUrl(href, candidates);
+  const media = previewMedia(resolved);
   if (!media) return null;
   const button = node("button", "media-preview-button");
   button.type = "button";
   button.dataset.previewSrc = media.src;
-  button.dataset.previewHref = href;
+  button.dataset.previewHref = resolved;
   button.dataset.previewLabel = label;
   button.setAttribute("aria-label", `在小視窗預覽：${label}`);
   button.title = "在小視窗預覽（點擊後向原站載入）";
   button.append(icon("image"), node("span", "", "預覽"));
   return button;
 }
-function inline(parent, text) {
+function inline(parent, text, candidates, options) {
   // Text nodes only: Discord content is never interpreted as HTML.
   const tokens =
-    /(\[[^\]\n]+\]\(<?https?:\/\/[^\s<>]*>?\)|\*\*[^*\n]+\*\*|`[^`\n]+`|https?:\/\/[^\s<>]+|\|\|[^|]+\|\|)/g;
+    /(\[[^\]\n]+\]\(<?https?:\/\/[^\s<>]*>?\)|\*\*[^*\n]+\*\*|`[^`\n]+`|https?:\/\/[^\s<>]+|\|\|[^|]+\|\||<a?:[A-Za-z0-9_]{1,32}:[1-9]\d{0,19}>)/g;
   let previous = 0;
   for (const match of text.matchAll(tokens)) {
     parent.append(document.createTextNode(text.slice(previous, match.index)));
     const part = match[0];
-    if (part.startsWith("**"))
+    const emoji = customEmoji(part);
+    if (emoji) {
+      const label = `:${emoji.name}:`, button = previewButton(emoji.url, `${label} · ${emoji.animated ? "動畫" : "靜態"}表情符號 · ${emoji.id}`);
+      button.classList.add("custom-emoji");
+      button.title = `${label} · ID ${emoji.id} · ${emoji.animated ? "動畫" : "靜態"} · 點擊預覽`;
+      if (options.showEmoji) {
+        const image = node("img", "emoji-image"), fallback = node("span", "", label);
+        image.alt = label;
+        image.loading = "lazy";
+        image.decoding = "async";
+        image.referrerPolicy = "no-referrer";
+        fallback.hidden = true;
+        button.classList.add("emoji-rendered");
+        image.onerror = () => {
+          image.remove(); fallback.hidden = false;
+          button.classList.remove("emoji-rendered");
+        };
+        image.src = emoji.url;
+        button.replaceChildren(image, fallback);
+      } else button.replaceChildren(icon("image"), node("span", "", label));
+      parent.append(button);
+    } else if (part.startsWith("**"))
       parent.append(node("strong", "", part.slice(2, -2)));
     else if (part.startsWith("`"))
       parent.append(node("code", "", part.slice(1, -1)));
@@ -114,7 +137,7 @@ function inline(parent, text) {
         a.target = "_blank";
         a.rel = "noopener noreferrer";
         parent.append(a);
-        const preview = previewButton(href, markdown ? markdown[1] : "訊息圖片");
+        const preview = previewButton(href, markdown ? markdown[1] : "訊息圖片", candidates);
         if (preview) parent.append(preview);
       } else parent.append(document.createTextNode(part));
     }
@@ -122,7 +145,7 @@ function inline(parent, text) {
   }
   parent.append(document.createTextNode(text.slice(previous)));
 }
-export function body(content) {
+export function body(content, candidates = [], options = {}) {
   const el = node("div", "message-body");
   const sections = String(content || "").split(/```[^\n]*\n([\s\S]*?)```/g);
   sections.forEach((text, index) => {
@@ -130,11 +153,11 @@ export function body(content) {
       const pre = node("pre");
       pre.append(node("code", "", text));
       el.append(pre);
-    } else inline(el, text);
+    } else inline(el, text, candidates, options);
   });
   return el;
 }
-export function messageNode(message, userId) {
+export function messageNode(message, userId, options = {}) {
   const author = message.relay_author ||
     message.author || { name: "未知使用者" };
   const own = author.id === userId;
@@ -166,22 +189,57 @@ export function messageNode(message, userId) {
   }
   meta.append(time);
   if (message.edited) meta.append(node("span", "message-edited", "已編輯"));
-  main.append(meta, body(message.relay_content ?? message.content));
-  for (const attachment of message.attachments || []) {
+  const candidates = [...(message.attachments || []).map((a) => a.url),
+    ...(message.media || []).flatMap((item) => [item.url, item.proxy_url]).filter(Boolean)];
+  const content = message.relay_content ?? message.content ?? "";
+  main.append(meta);
+  if (content.trim()) main.append(body(content, candidates, options));
+  for (const [index, attachment] of (message.attachments || []).entries()) {
     const href = safeUrl(attachment.url);
     if (!href) continue;
+    const spoiler = attachment.spoiler || attachment.name?.startsWith("SPOILER_");
+    const spoilerKey = `${message.id}:attachment:${index}`;
+    const row = node("div", "attachment-row");
+    if (spoiler && !options.revealedSpoilers?.has(spoilerKey)) {
+      row.classList.add("spoiler-attachment");
+      const label = previewMedia(href) ? "暴雷圖片" : "暴雷附件";
+      const reveal = node("button", "pill-button", `顯示${label}`);
+      reveal.type = "button";
+      reveal.onclick = () => options.onReveal?.(spoilerKey);
+      row.append(icon("eye"), node("span", "", `${label} · 內容已隱藏`), reveal);
+      main.append(row);
+      continue;
+    }
     const link = node("a", "attachment");
     link.href = href;
     link.target = "_blank";
     link.rel = "noopener noreferrer";
     link.append(
       icon("file"),
-      document.createTextNode(attachment.name || "附件"),
+      document.createTextNode((attachment.name || "附件").replace(/^SPOILER_/, "")),
     );
-    const row = node("div", "attachment-row");
     row.append(link);
-    const preview = previewButton(href, attachment.name || "附件圖片");
-    if (preview && !attachment.name?.startsWith("SPOILER_")) row.append(preview);
+    const preview = previewButton(href, attachment.name || "附件圖片", candidates);
+    if (preview) row.append(preview);
+    if (spoiler) {
+      const hide = node("button", "pill-button", "隱藏暴雷附件");
+      hide.type = "button";
+      hide.onclick = () => options.onReveal?.(spoilerKey);
+      row.append(hide);
+    }
+    main.append(row);
+  }
+  const seen = new Set([...main.querySelectorAll("[data-preview-src]")].map((el) => el.dataset.previewSrc));
+  // Embed-only images also need an entry. Do not reveal hidden spoiler media.
+  const hiddenContent = /\|\|/.test(message.relay_content ?? message.content ?? "");
+  const spoilerUrls = new Set((message.attachments || []).filter((a) => a.spoiler || a.name?.startsWith("SPOILER_")).map((a) => discordAttachmentKey(a.url) || a.url));
+  if (!hiddenContent) for (const item of message.media || []) {
+    if (spoilerUrls.has(discordAttachmentKey(item.url) || item.url)) continue;
+    const href = safeUrl(item.url), preview = href && previewButton(href, "嵌入圖片", candidates);
+    if (!preview || seen.has(preview.dataset.previewSrc)) continue;
+    seen.add(preview.dataset.previewSrc);
+    const row = node("div", "attachment-row");
+    row.append(preview);
     main.append(row);
   }
   article.append(main);

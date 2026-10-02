@@ -3,6 +3,37 @@
 const imageExtension = /\.(?:jpe?g|jfif|png|apng|gif|webp|avif|bmp|svg|ico)$/i;
 const imageFormat = /^(?:image\/)?(?:jpe?g|png|apng|gif|webp|avif|bmp|svg(?:\+xml)?|ico)$/i;
 
+export function discordAttachmentKey(raw) {
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "https:" || url.username || url.password || url.port ||
+        !["cdn.discordapp.com", "media.discordapp.net"].includes(url.hostname)) return null;
+    return /^\/(?:ephemeral-)?attachments\/[1-9]\d{0,19}\/[1-9]\d{0,19}\/[^/]+$/.test(url.pathname) ? url.pathname : null;
+  } catch { return null; }
+}
+
+export function resolvedMediaUrl(raw, candidates = [], now = Date.now()) {
+  const key = discordAttachmentKey(raw);
+  if (!key) return raw;
+  let best = raw, expiry = 0;
+  for (const candidate of [raw, ...candidates]) {
+    if (discordAttachmentKey(candidate) !== key) continue;
+    const url = new URL(candidate), params = url.searchParams;
+    const expires = /^[\da-f]{1,12}$/i.test(params.get("ex") || "") ? parseInt(params.get("ex"), 16) : 0;
+    if (params.get("is") && params.get("hm") && expires * 1000 > now && expires > expiry) {
+      best = candidate; expiry = expires;
+    }
+  }
+  return best;
+}
+
+export function customEmoji(raw) {
+  const match = /^<(a?):([A-Za-z0-9_]{1,32}):([1-9]\d{0,19})>$/.exec(raw);
+  if (!match) return null;
+  return { name: match[2], id: match[3], animated: !!match[1],
+    url: `https://cdn.discordapp.com/emojis/${match[3]}.webp?size=96${match[1] ? "&animated=true" : ""}` };
+}
+
 export function previewMedia(raw) {
   if (typeof raw !== "string" || raw.length > 8192) return null;
   let url;

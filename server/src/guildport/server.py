@@ -191,6 +191,24 @@ class RelayService:
         self.store.authenticate(bearer(request))
         return web.json_response({"messages": messages})
 
+    async def emojis(self, request):
+        user_id, channel_id = request["user"]["discord_id"], request.match_info["channel_id"]
+        self.limits.check("emoji:" + user_id, 30, 60)
+        access = await self.access(user_id, channel_id)
+        items = await self.adapter.emojis(access)
+        access = await self.access(user_id, channel_id)
+        self.store.authenticate(bearer(request))
+        if not access.can_send:
+            raise RelayError(403, "cannot_send", access.send_block_reason or "You cannot send messages in this channel.")
+        allowed = []
+        for item in items:
+            roles = set(item.get("roles", []))
+            if not item.get("available", True) or (roles and
+                    (not roles.intersection(access.user_role_ids) or not roles.intersection(access.bot_role_ids))):
+                continue
+            allowed.append({key: item[key] for key in ("id", "name", "animated")})
+        return web.json_response({"emojis": allowed})
+
     async def send(self, request):
         data = await body(request, {"content", "request_id"})
         content = string(data, "content", 1800)
@@ -353,6 +371,7 @@ class RelayService:
             web.post("/v1/logout-all", self.logout_all), web.get("/v1/guilds", self.guilds),
             web.get("/v1/guilds/{guild_id}/channels", self.channels),
             web.get("/v1/channels/{channel_id}/messages", self.history),
+            web.get("/v1/channels/{channel_id}/emojis", self.emojis),
             web.post("/v1/channels/{channel_id}/messages", self.send),
             web.get("/v1/channels/{channel_id}/events", self.events),
         ])

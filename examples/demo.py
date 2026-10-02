@@ -36,6 +36,10 @@ class DemoAdapter:
         self.hub.publish("200", {"type": "message.created", "message": message})
         return message
 
+    async def emojis(self, access):
+        return [{"id":"123456","name":"hello","animated":False},
+                {"id":"234567","name":"dance","animated":True}]
+
 
 async def main():
     parser = argparse.ArgumentParser()

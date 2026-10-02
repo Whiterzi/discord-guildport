@@ -104,6 +104,7 @@ class BrowserAccess:
             web.get("/web-api/guilds", service.guilds),
             web.get("/web-api/guilds/{guild_id}/channels", service.channels),
             web.get("/web-api/channels/{channel_id}/messages", service.history),
+            web.get("/web-api/channels/{channel_id}/emojis", service.emojis),
             web.post("/web-api/channels/{channel_id}/messages", service.send),
             web.get("/web-api/channels/{channel_id}/events", service.events),
         ]

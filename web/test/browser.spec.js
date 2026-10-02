@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
-import { previewMedia } from "../src/media.js";
+import { previewMedia, resolvedMediaUrl, customEmoji } from "../src/media.js";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const test = base.extend({
@@ -383,6 +383,19 @@ test("media recognition preserves signatures and excludes local, unsafe and non-
   expect(previewMedia("https://images.example.com/photo?format=webp").kind).toBe("image");
 });
 
+test("Discord media resolution matches only the same attachment and parses static or animated emoji", () => {
+  const raw="https://cdn.discordapp.com/attachments/100/200/demo.gif?backend=b2";
+  const signed=raw+"&ex=ffffffff&is=123&hm=a%2Bb";
+  expect(resolvedMediaUrl(raw,[signed])).toBe(signed);
+  expect(resolvedMediaUrl(raw,[signed.replace("/200/","/201/")])).toBe(raw);
+  expect(resolvedMediaUrl(raw,[signed.replace("cdn.discordapp.com","cdn.discordapp.com.evil.example")])).toBe(raw);
+  expect(resolvedMediaUrl(raw,[signed.replace("ffffffff","1")])).toBe(raw);
+  expect(resolvedMediaUrl(raw,[signed.replace("https:","http:")])).toBe(raw);
+  expect(customEmoji("<:hello:123456>")).toEqual({name:"hello",id:"123456",animated:false,url:"https://cdn.discordapp.com/emojis/123456.webp?size=96"});
+  expect(customEmoji("<a:hello:123456>").url).toContain("animated=true");
+  expect(customEmoji("<:bad/name:123456>")).toBeNull();
+});
+
 const previewOne = "https://images.example.com/one.png?signature=a%2Bb&ex=123";
 async function previewFixtures(page) {
   const requests = [];
@@ -505,4 +518,88 @@ test("channel changes and logout discard the active preview", async ({ page, dem
   await page.getByRole("button", { name: "登出這個瀏覽器" }).click();
   await expect(page.locator(".media-preview-button")).toHaveCount(0);
   await expect(page.locator(".image-viewer a")).not.toHaveAttribute("href");
+});
+
+test("Discord signed embed media, emoji toggle, attachment-only messages and spoiler reveal", async ({ page, demo, request }) => {
+  const unsigned="https://cdn.discordapp.com/attachments/100/200/demo.gif?backend=b2";
+  const signed=unsigned+"&ex=ffffffff&is=123&hm=a%2Bb";
+  const secret="https://cdn.discordapp.com/attachments/100/201/secret.png?ex=ffffffff&is=123&hm=hidden";
+  const fetched=[];
+  await page.route("https://cdn.discordapp.com/**", route => {
+    fetched.push(route.request().url());
+    return route.fulfill({contentType:"image/svg+xml",body:'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96"><rect width="96" height="96" rx="24" fill="#f4d36e"/><path d="M24 52q24 32 48 0M28 32v8M68 32v8" fill="none" stroke="#333" stroke-width="5"/></svg>'});
+  });
+  await page.route("**/web-api/channels/200/messages?*", async route => {
+    const response=await route.fetch(), data=await response.json();
+    const last=data.messages.at(-1), picture=data.messages.at(-2);
+    last.content += `\n${unsigned}\n<:hello:123456> <a:dance:234567>`;
+    last.media=[{url:signed}];
+    picture.content="";
+    picture.attachments=[{name:"image.png",url:"https://cdn.discordapp.com/attachments/100/202/image.png"},
+      {name:"secret.png",url:secret,spoiler:true}];
+    picture.media=[{url:secret}];
+    await route.fulfill({response,json:data});
+  });
+  await login(page,demo); await openChat(page);
+  await expect(page.locator('.message[data-id="1118"] .message-body')).toHaveCount(0);
+  await expect(page.getByText("暴雷圖片 · 內容已隱藏",{exact:true})).toBeVisible();
+  await expect(page.locator(".custom-emoji img")).toHaveCount(2);
+  await expect.poll(() => fetched.filter(url=>url.includes('/emojis/')).length).toBeGreaterThanOrEqual(2);
+  expect(fetched.every(url=>url.includes('/emojis/'))).toBe(true);
+  const toggle=page.getByRole('button',{name:'顯示自訂表情符號',exact:true});
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-pressed','false');
+  await expect(page.locator('.custom-emoji img')).toHaveCount(0);
+  await expect(page.locator('.custom-emoji').first()).toContainText(':hello:');
+  await page.getByRole('button',{name:'在小視窗預覽：訊息圖片',exact:true}).click();
+  const viewer=page.getByRole('dialog',{name:'圖片小視窗'});
+  await expect(viewer.locator('img')).toHaveAttribute('src',signed);
+  await expect(viewer.locator('.image-viewer-stage')).toHaveAttribute('aria-busy','false');
+  expect(fetched).not.toContain(unsigned);
+  await page.keyboard.press('Escape');
+  await page.getByRole('button',{name:'顯示暴雷圖片',exact:true}).click();
+  expect(fetched).not.toContain(secret);
+  await page.getByRole('button',{name:'在小視窗預覽：secret.png',exact:true}).click();
+  await expect(viewer.locator('img')).toHaveAttribute('src',secret);
+  const token=await externalLogin(request,demo);
+  await request.post(demo.url+'/v1/channels/200/messages',{headers:{Authorization:'Bearer '+token},data:{content:'Spoiler remains revealed during chat',request_id:crypto.randomUUID()}});
+  await expect(page.getByText('Spoiler remains revealed during chat',{exact:true})).toBeVisible();
+  await expect(viewer).toBeVisible();
+  await page.getByRole('button',{name:'隱藏暴雷附件',exact:true}).click();
+  await expect(viewer).toBeHidden();
+  await expect(page.getByText('暴雷圖片 · 內容已隱藏',{exact:true})).toBeVisible();
+  await toggle.click();
+  await page.locator('#messages-scroll').evaluate(el => { el.scrollTop=el.scrollHeight; });
+  await page.screenshot({path:join(root,'tmp/web-discord-media.png'),animations:'disabled'});
+  await page.setViewportSize({width:320,height:720});
+  await page.locator('#messages-scroll').evaluate(el => { el.scrollTop=el.scrollHeight; });
+  await page.screenshot({path:join(root,'tmp/web-discord-media-mobile.png'),animations:'disabled'});
+  const modes=await page.locator('.mode-switch').boundingBox(), controls=await page.locator('.topbar-right').boundingBox();
+  expect(modes.x+modes.width).toBeLessThanOrEqual(controls.x);
+});
+
+test("server emoji picker searches, inserts at the cursor, sends markup and clears on revocation", async ({page,demo,request}) => {
+  await page.route('https://cdn.discordapp.com/emojis/**',route=>route.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 30 30"><circle cx="15" cy="15" r="14" fill="#e5cb68"/></svg>'}));
+  await login(page,demo); await openChat(page);
+  const input=page.getByRole('textbox',{name:'訊息內容'});
+  await input.fill('前後'); await input.press('Home'); await input.press('ArrowRight');
+  await page.getByRole('button',{name:'選擇伺服器表情符號',exact:true}).click();
+  const picker=page.getByRole('dialog',{name:'伺服器表情符號',exact:true});
+  await expect(picker.getByRole('button',{name:'插入 :hello:',exact:true})).toBeVisible();
+  await page.getByRole('searchbox',{name:'搜尋表情符號'}).fill('dance');
+  await expect(picker.locator('.emoji-choice')).toHaveCount(1);
+  await page.screenshot({path:join(root,'tmp/web-emoji-picker.png'),animations:'disabled'});
+  await picker.getByRole('button',{name:'插入 :dance:',exact:true}).click();
+  await expect(picker).toBeHidden();
+  await expect(input).toHaveValue('前<a:dance:234567> 後');
+  const sent=page.waitForRequest(r=>r.method()==='POST' && r.url().endsWith('/channels/200/messages'));
+  await page.getByRole('button',{name:'送出訊息',exact:true}).click();
+  expect((await sent).postDataJSON().content).toBe('前<a:dance:234567> 後');
+  await expect(input).toHaveValue('');
+  await page.getByRole('button',{name:'選擇伺服器表情符號',exact:true}).click();
+  await expect(picker.locator('.emoji-choice')).toHaveCount(2);
+  const token=await externalLogin(request,demo);
+  await request.post(demo.url+'/v1/logout-all',{headers:{Authorization:'Bearer '+token},data:{}});
+  await expect(picker).toBeHidden({timeout:12000});
+  await expect(page.locator('#emoji-picker-items')).toBeEmpty();
 });

@@ -126,6 +126,16 @@ class BrowserTests(unittest.IsolatedAsyncioTestCase):
         response = await self.client.get('/web-api/me', headers=self.headers)
         self.assertEqual(response.status, 429)
 
+    async def test_browser_emoji_picker_requires_cookie_and_channel_access(self):
+        self.adapter.emoji_items=[{"id":"600","name":"wave","animated":True}]
+        response=await self.client.get('/web-api/channels/200/emojis',headers=self.headers)
+        self.assertEqual(response.status,401)
+        await self.login()
+        response=await self.client.get('/web-api/channels/200/emojis',headers=self.headers)
+        self.assertEqual((await response.json())['emojis'],self.adapter.emoji_items)
+        response=await self.client.get('/web-api/channels/200/emojis',headers=dict(self.headers,Origin='https://evil.example'))
+        self.assertEqual(response.status,403)
+
     async def test_login_rotates_session_logout_revokes_and_clears_cookie(self):
         first = await self.login()
         old = first.cookies['guildport_session'].value

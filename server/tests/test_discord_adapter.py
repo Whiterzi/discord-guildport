@@ -72,6 +72,17 @@ class DiscordAdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.client.fetch_channel.await_count, 2)
         self.fetch_channels.assert_not_awaited()
 
+    async def test_current_guild_emoji_catalog_preserves_role_restrictions(self):
+        access=await self.adapter.authorize("300","100","200")
+        self.assertEqual(access.user_role_ids,frozenset({"100"}))
+        self.assertEqual(access.bot_role_ids,frozenset({"100"}))
+        emoji=discord.Emoji(guild=self.guild,state=self.state,data={"id":"600","name":"wave",
+            "roles":["100","999"],"animated":True,"available":True})
+        with patch.object(discord.Guild,"fetch_emojis",AsyncMock(return_value=[emoji])) as fetch:
+            items=await self.adapter.emojis(access)
+        fetch.assert_awaited_once()
+        self.assertEqual(items,[{"id":"600","name":"wave","animated":True,"available":True,"roles":["100","999"]}])
+
     async def test_snapshot_requests_run_concurrently_and_only_share_in_flight(self):
         started = set()
         all_started, release = asyncio.Event(), asyncio.Event()
@@ -304,6 +315,34 @@ class DiscordAdapterTests(unittest.IsolatedAsyncioTestCase):
         data=message_data(self.message(author=401,embeds=[embed]),400)
         self.assertIn("Summary",data["content"])
         self.assertIn("Readable content",data["content"])
+
+    def test_embed_media_preserves_signed_urls_without_rewriting_message_text(self):
+        original="https://cdn.discordapp.com/attachments/100/200/photo.gif?backend=b2"
+        signed=original+"&ex=ffffffff&is=123&hm=signature"
+        proxy=signed.replace("cdn.discordapp.com","media.discordapp.net")
+        embed=discord.Embed.from_dict({"url":original,"thumbnail":{"url":signed,"proxy_url":proxy},
+                                       "image":{"url":signed}})
+        message=self.message(author=401,content=original,embeds=[embed])
+        result=message_data(message,400)
+        self.assertEqual(result["content"],original)
+        self.assertEqual(result["media"],[{"url":signed,"proxy_url":proxy}])
+        embed=discord.Embed().set_image(url=signed)
+        result=message_data(self.message(author=401,embeds=[embed]),400)
+        self.assertEqual(result["content"],"")
+        self.assertEqual(result["media"],[{"url":signed}])
+
+    def test_spoiler_flag_survives_without_filename_prefix_and_media_keeps_relay_attribution(self):
+        embed=discord.Embed(description="hello")
+        embed.set_author(name="Alice")
+        embed.set_footer(text="via GuildPort · 300")
+        embed.set_image(url="https://cdn.discordapp.com/attachments/100/200/photo.png")
+        message=self.message(embeds=[embed])
+        message.attachments=[SimpleNamespace(filename="image.png",url="https://example.com/image.png",is_spoiler=lambda:True)]
+        result=message_data(message,400)
+        self.assertEqual(result["relay_author"],{"id":"300","name":"Alice"})
+        self.assertTrue(result["attachments"][0]["spoiler"])
+        self.assertEqual(result["attachments"][0]["name"],"image.png")
+        self.assertEqual(len(result["media"]),1)
 
 
 class PluginTests(unittest.IsolatedAsyncioTestCase):
